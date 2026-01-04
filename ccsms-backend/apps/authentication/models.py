@@ -1,0 +1,1 @@
+# Authentication app uses User model from users app

@@ -1,0 +1,13 @@
+Hello {{ user_name }},
+
+Your complaint has been successfully registered.
+
+Complaint Number: {{ complaint_number }}
+Title: {{ complaint_title }}
+Priority: {{ complaint_priority }}
+
+You can track the progress of your complaint here: {{ complaint_url }}
+
+Thank you for your patience.
+Best regards,
+CCSMS Team

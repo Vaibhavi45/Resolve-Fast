@@ -1,0 +1,10 @@
+Hello {{ user_name }},
+
+A new comment has been added to complaint #{{ complaint_number }}.
+
+Title: {{ complaint_title }}
+
+You can view the comment here: {{ complaint_url }}
+
+Best regards,
+CCSMS Team

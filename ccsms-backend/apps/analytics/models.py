@@ -1,0 +1,1 @@
+# Analytics app doesn't have its own models - uses data from other apps

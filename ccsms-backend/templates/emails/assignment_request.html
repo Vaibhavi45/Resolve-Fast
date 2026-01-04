@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>New Assignment Request</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #1da9c3;">New Assignment Request</h2>
+        
+        <p>Dear {{ user_name }},</p>
+        
+        <p>You have received a new complaint assignment request:</p>
+        
+        <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p><strong>Complaint Number:</strong> {{ complaint_number }}</p>
+            <p><strong>Title:</strong> {{ complaint_title }}</p>
+            <p><strong>Priority:</strong> {{ complaint_priority }}</p>
+        </div>
+        
+        <p>Please log in to your dashboard to accept or reject this assignment.</p>
+        
+        <p>Best regards,<br>ResolveFast Team</p>
+    </div>
+</body>
+</html>

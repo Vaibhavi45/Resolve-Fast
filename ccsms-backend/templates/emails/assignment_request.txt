@@ -1,0 +1,11 @@
+Hello Admin,
+
+Agent {{ agent_name }} has requested to be assigned to complaint #{{ complaint_number }}.
+
+Title: {{ complaint_title }}
+Message from Agent: {{ request_message }}
+
+Review request here: {{ complaint_url }}
+
+Best regards,
+CCSMS System

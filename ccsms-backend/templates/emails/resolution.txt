@@ -1,0 +1,10 @@
+Hello {{ user_name }},
+
+Great news! Your complaint #{{ complaint_number }} has been resolved.
+
+Resolution Notes: {{ resolution_notes }}
+
+If you are satisfied with the resolution, no further action is needed. If you feel the issue persists, you can reopen the complaint within {{ reopen_window_days }} days from the dashboard.
+
+Best regards,
+CCSMS Team

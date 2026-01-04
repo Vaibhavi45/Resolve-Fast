@@ -1,0 +1,12 @@
+Hello {{ user_name }},
+
+A new complaint has been assigned to you.
+
+Complaint Number: {{ complaint_number }}
+Title: {{ complaint_title }}
+Priority: {{ complaint_priority }}
+
+Please review and start working on it: {{ complaint_url }}
+
+Best regards,
+CCSMS System

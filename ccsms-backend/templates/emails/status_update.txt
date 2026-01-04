@@ -1,0 +1,11 @@
+Hello {{ user_name }},
+
+The status of your complaint #{{ complaint_number }} has been updated.
+
+New Status: {{ complaint_status }}
+Title: {{ complaint_title }}
+
+View updates here: {{ complaint_url }}
+
+Best regards,
+CCSMS Team
