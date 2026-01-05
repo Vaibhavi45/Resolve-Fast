@@ -36,8 +36,15 @@ export default function ProfilePage() {
     onSuccess: (data) => {
       updateUser(data);
       setEditing(false);
+      setPhotoFile(null);
+      setPhotoPreview(null);
+      queryClient.invalidateQueries({ queryKey: ['user'] });
       alert('Profile updated successfully');
     },
+    onError: (error: any) => {
+      console.error('Profile update error:', error);
+      alert(error.response?.data?.message || 'Failed to update profile');
+    }
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -60,22 +67,33 @@ export default function ProfilePage() {
           <div className="flex items-center gap-6">
             <div className="relative">
               {photoPreview || user?.avatar ? (
-                <img 
-                  src={photoPreview || user?.avatar} 
-                  alt="Profile" 
-                  className="w-24 h-24 rounded-full object-cover border-4 border-white"
+                <img
+                  src={photoPreview || user?.avatar}
+                  alt="Profile"
+                  className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg"
+                  onError={(e) => {
+                    // Fallback to initials if image fails to load
+                    (e.target as HTMLImageElement).style.display = 'none';
+                    const parent = (e.target as HTMLElement).parentElement;
+                    if (parent && !parent.querySelector('.avatar-placeholder')) {
+                      const placeholder = document.createElement('div');
+                      placeholder.className = 'avatar-placeholder w-24 h-24 bg-white dark:bg-gray-200 rounded-full flex items-center justify-center text-3xl font-bold text-[#1da9c3]';
+                      placeholder.innerText = `${user?.first_name?.[0]}${user?.last_name?.[0]}`;
+                      parent.appendChild(placeholder);
+                    }
+                  }}
                 />
               ) : (
-                <div className="w-24 h-24 bg-white dark:bg-gray-200 rounded-full flex items-center justify-center text-3xl font-bold text-[#1da9c3]">
+                <div className="avatar-placeholder w-24 h-24 bg-white dark:bg-gray-200 rounded-full flex items-center justify-center text-3xl font-bold text-[#1da9c3]">
                   {user?.first_name?.[0]}{user?.last_name?.[0]}
                 </div>
               )}
               {editing && (
                 <label className="absolute bottom-0 right-0 bg-white dark:bg-gray-700 rounded-full p-2 cursor-pointer shadow-lg hover:bg-gray-100 dark:hover:bg-gray-600">
                   <Edit2 size={16} className="text-[#1da9c3]" />
-                  <input 
-                    type="file" 
-                    accept="image/*" 
+                  <input
+                    type="file"
+                    accept="image/*"
                     onChange={handlePhotoChange}
                     className="hidden"
                   />

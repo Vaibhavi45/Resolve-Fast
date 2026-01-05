@@ -27,16 +27,15 @@ THIRD_PARTY_APPS = [
     'drf_yasg',
     'django_filters',
     'django_celery_beat',
-    'channels',
 ]
 
 LOCAL_APPS = [
-    'apps.authentication',
-    'apps.users',
-    'apps.complaints',
-    'apps.notifications',
-    'apps.analytics',
-    'apps.audit',
+    'apps.authentication.apps.AuthenticationConfig',
+    'apps.users.apps.UsersConfig',
+    'apps.complaints.apps.ComplaintsConfig',
+    'apps.notifications.apps.NotificationsConfig',
+    'apps.analytics.apps.AnalyticsConfig',
+    'apps.audit.apps.AuditConfig',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -72,26 +71,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'ccsms.wsgi.application'
 
-# Channels ASGI application
-ASGI_APPLICATION = 'ccsms.asgi.application'
-
-
-# Channel layers: use Redis in production, in-memory layer during DEBUG for local dev
-if DEBUG:
-    CHANNEL_LAYERS = {
-        'default': {
-            'BACKEND': 'channels.layers.InMemoryChannelLayer',
-        }
-    }
-else:
-    CHANNEL_LAYERS = {
-        'default': {
-            'BACKEND': 'channels_redis.core.RedisChannelLayer',
-            'CONFIG': {
-                'hosts': [config('REDIS_URL', default='redis://localhost:6379/0')],
-            },
-        },
-    }
+# Firebase Configuration
+FIREBASE_CREDENTIALS_PATH = config('FIREBASE_CREDENTIALS_PATH', default=str(BASE_DIR / 'firebase-credentials.json'))
 
 # Database configuration with SQLite fallback
 try:

@@ -12,6 +12,8 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'email', 'role', 'is_verified', 'date_joined', 'last_login')
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    avatar = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
         fields = ('id', 'email', 'first_name', 'last_name', 'phone', 'role',
@@ -20,6 +22,27 @@ class UserProfileSerializer(serializers.ModelSerializer):
                  'pincode', 'service_type', 'service_card_id', 'is_verified',
                  'date_joined', 'last_login')
         read_only_fields = ('id', 'email', 'role', 'is_verified', 'date_joined', 'last_login')
+    
+    def get_avatar(self, obj):
+        if obj.avatar:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return None
+    
+    def update(self, instance, validated_data):
+        # Handle avatar upload
+        avatar = self.context['request'].FILES.get('avatar')
+        if avatar:
+            instance.avatar = avatar
+        
+        # Update other fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        instance.save()
+        return instance
 
 class AgentListSerializer(serializers.ModelSerializer):
     current_active_cases = serializers.SerializerMethodField()

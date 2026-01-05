@@ -5,6 +5,7 @@ from django.conf import settings
 from apps.complaints.models import Complaint, Comment, AssignmentRequest
 from .email_service import send_module_notification, notify_admins
 from .models import NotificationPreference
+from .firebase_service import send_notification_to_user
 
 User = get_user_model()
 
@@ -14,10 +15,13 @@ def complaint_pre_save(sender, instance, **kwargs):
         # Store old status for post_save comparison
         try:
             instance._old_status = Complaint.objects.get(pk=instance.pk).status
+            instance._old_assigned_to = Complaint.objects.get(pk=instance.pk).assigned_to_id
         except Complaint.DoesNotExist:
             instance._old_status = None
+            instance._old_assigned_to = None
     else:
         instance._old_status = None
+        instance._old_assigned_to = None
 
 @receiver(post_save, sender=Complaint)
 def complaint_post_save(sender, instance, created, **kwargs):
@@ -28,10 +32,29 @@ def complaint_post_save(sender, instance, created, **kwargs):
     if created:
         # 1. Notify Customer that complaint is registered
         send_module_notification(instance.customer, 'COMPLAINT_CREATED', instance)
+        send_notification_to_user(
+            instance.customer.id,
+            'Complaint Registered',
+            f'Your complaint #{instance.id} has been registered successfully.',
+            'success'
+        )
         
         # 2. Notify Admins about new complaint
         notify_admins('COMPLAINT_CREATED', instance)
     else:
+        # Handle assignment changes
+        old_assigned_to = getattr(instance, '_old_assigned_to', None)
+        if old_assigned_to != instance.assigned_to_id and instance.assigned_to:
+            # Notify the newly assigned agent
+            send_notification_to_user(
+                instance.assigned_to.id,
+                'New Assignment',
+                f'You have been assigned complaint #{instance.id}',
+                'info',
+                category='COMPLAINT_ASSIGNED',
+                complaint=instance
+            )
+        
         # Handle status changes
         old_status = getattr(instance, '_old_status', None)
         if old_status and old_status != instance.status:
@@ -40,12 +63,37 @@ def complaint_post_save(sender, instance, created, **kwargs):
                     'resolution_notes': instance.resolution_notes or "Resolved by agent",
                     'reopen_window_days': instance.reopen_window_days
                 })
+                send_notification_to_user(
+                    instance.customer.id,
+                    'Complaint Resolved',
+                    f'Your complaint #{instance.id} has been resolved.',
+                    'success',
+                    category='COMPLAINT_RESOLVED',
+                    complaint=instance
+                )
             else:
                 send_module_notification(instance.customer, 'COMPLAINT_STATUS_CHANGED', instance)
+                send_notification_to_user(
+                    instance.customer.id,
+                    'Status Updated',
+                    f'Complaint #{instance.id} status changed to {instance.get_status_display()}',
+                    'info',
+                    category='COMPLAINT_STATUS_CHANGED',
+                    complaint=instance
+                )
             
             # If assigned to an agent, notify them too
             if instance.assigned_to:
                 send_module_notification(instance.assigned_to, 'COMPLAINT_STATUS_CHANGED', instance)
+                send_notification_to_user(
+                    instance.assigned_to.id,
+                    'Complaint Status Changed',
+                    f'Complaint #{instance.id} status changed to {instance.get_status_display()}',
+                    'info',
+                    category='COMPLAINT_STATUS_CHANGED',
+                    complaint=instance
+                )
+
 
 @receiver(post_save, sender=Comment)
 def comment_post_save(sender, instance, created, **kwargs):
@@ -60,11 +108,28 @@ def comment_post_save(sender, instance, created, **kwargs):
             # Notify Assigned Agent if exists, otherwise Notify Admin
             if complaint.assigned_to:
                 send_module_notification(complaint.assigned_to, 'COMMENT_ADDED', complaint)
+                send_notification_to_user(
+                    complaint.assigned_to.id,
+                    'New Comment',
+                    f'New comment on complaint #{complaint.id}',
+                    'info',
+                    category='COMMENT_ADDED',
+                    complaint=complaint
+                )
             else:
                 notify_admins('COMMENT_ADDED', complaint)
         else:
             # Notify Customer
             send_module_notification(complaint.customer, 'COMMENT_ADDED', complaint)
+            send_notification_to_user(
+                complaint.customer.id,
+                'New Comment',
+                f'New comment on your complaint #{complaint.id}',
+                'info',
+                category='COMMENT_ADDED',
+                complaint=complaint
+            )
+
 
 @receiver(post_save, sender=User)
 def create_default_notification_preferences(sender, instance, created, **kwargs):
@@ -100,3 +165,12 @@ def assignment_request_post_save(sender, instance, created, **kwargs):
     elif instance.status == 'APPROVED':
         # Notify Agent that request was approved
         send_module_notification(instance.requested_by, 'COMPLAINT_ASSIGNED', instance.complaint)
+        send_notification_to_user(
+            instance.requested_by.id,
+            'Assignment Approved',
+            f'Your request for complaint #{instance.complaint.id} has been approved',
+            'success',
+            category='ASSIGNMENT_APPROVED',
+            complaint=instance.complaint
+        )
+

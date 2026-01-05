@@ -39,35 +39,45 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginFormData) => {
     if (loading) return; // Prevent double submission
-    
+
     setLoading(true);
     setError('');
-    
+
     try {
       const response = await authService.login(data.email, data.password);
       // Handle both access_token and accessToken formats
       const accessToken = response.access_token || response.accessToken;
       const refreshToken = response.refresh_token || response.refreshToken;
-      
+
       if (!accessToken || !refreshToken) {
         throw new Error('Invalid response from server');
       }
-      
+
       setAuth(response.user, accessToken, refreshToken);
+
+      // Initialize FCM after successful login
+      try {
+        const { initializeFCM } = await import('@/lib/firebase/messaging');
+        await initializeFCM();
+      } catch (fcmError) {
+        console.warn('FCM initialization failed:', fcmError);
+        // Don't block login if FCM fails
+      }
+
       router.push('/dashboard');
     } catch (err: any) {
       console.error('Login error:', err);
-      
+
       // Handle network errors specifically
       if (err.isNetworkError || err.message?.includes('Network Error') || err.code === 'ECONNABORTED') {
         setError('Cannot connect to server. Please ensure the backend is running on http://localhost:8000');
       } else if (err.response?.status === 0 || !err.response) {
         setError('Network Error: Backend server is not running. Please start the Django server.');
       } else {
-        const errorMessage = err.response?.data?.detail || 
-                            err.response?.data?.non_field_errors?.[0] ||
-                            err.message || 
-                            'Login failed. Please check your credentials and try again.';
+        const errorMessage = err.response?.data?.detail ||
+          err.response?.data?.non_field_errors?.[0] ||
+          err.message ||
+          'Login failed. Please check your credentials and try again.';
         setError(errorMessage);
       }
     } finally {
@@ -131,76 +141,76 @@ export default function LoginPage() {
             <p className="text-gray-600 dark:text-gray-400">Enter your credentials to access your account</p>
           </div>
 
-        <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
-          {error && (
-            <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
-              <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
-            </div>
-          )}
-          {searchParams.get('registered') === 'true' && !error && (
-            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3">
-              <p className="text-sm text-green-800 dark:text-green-200">Registration successful! Please sign in.</p>
-            </div>
-          )}
-          
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Email</label>
-              <input
-                {...register('email')}
-                type="email"
-                autoComplete="email"
-                disabled={loading}
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                placeholder="Enter your email"
-              />
-              {errors.email && <p className="text-red-500 dark:text-red-400 text-xs mt-1.5">{errors.email.message}</p>}
-            </div>
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
-              <input
-                {...register('password')}
-                type="password"
-                autoComplete="current-password"
-                disabled={loading}
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                placeholder="Enter your password"
-              />
-              {errors.password && <p className="text-red-500 dark:text-red-400 text-xs mt-1.5">{errors.password.message}</p>}
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex justify-center items-center gap-2 py-3 px-4 text-sm font-semibold rounded-xl text-white bg-[#1da9c3] hover:bg-[#178a9f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#1da9c3] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="animate-spin" size={18} />
-                Signing in...
-              </>
-            ) : (
-              'Sign in'
+          <form className="space-y-5" onSubmit={handleSubmit(onSubmit)}>
+            {error && (
+              <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+                <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+              </div>
             )}
-          </button>
+            {searchParams.get('registered') === 'true' && !error && (
+              <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3">
+                <p className="text-sm text-green-800 dark:text-green-200">Registration successful! Please sign in.</p>
+              </div>
+            )}
 
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300 dark:border-gray-700"></div>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Email</label>
+                <input
+                  {...register('email')}
+                  type="email"
+                  autoComplete="email"
+                  disabled={loading}
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  placeholder="Enter your email"
+                />
+                {errors.email && <p className="text-red-500 dark:text-red-400 text-xs mt-1.5">{errors.email.message}</p>}
+              </div>
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
+                <input
+                  {...register('password')}
+                  type="password"
+                  autoComplete="current-password"
+                  disabled={loading}
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  placeholder="Enter your password"
+                />
+                {errors.password && <p className="text-red-500 dark:text-red-400 text-xs mt-1.5">{errors.password.message}</p>}
+              </div>
             </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">New here?</span>
-            </div>
-          </div>
 
-          <Link 
-            href="/register" 
-            className="w-full flex justify-center py-3 px-4 text-sm font-semibold rounded-xl text-[#1da9c3] bg-[#1da9c3]/10 hover:bg-[#1da9c3]/20 transition-all"
-          >
-            Create an account
-          </Link>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex justify-center items-center gap-2 py-3 px-4 text-sm font-semibold rounded-xl text-white bg-[#1da9c3] hover:bg-[#178a9f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#1da9c3] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="animate-spin" size={18} />
+                  Signing in...
+                </>
+              ) : (
+                'Sign in'
+              )}
+            </button>
+
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300 dark:border-gray-700"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-4 bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">New here?</span>
+              </div>
+            </div>
+
+            <Link
+              href="/register"
+              className="w-full flex justify-center py-3 px-4 text-sm font-semibold rounded-xl text-[#1da9c3] bg-[#1da9c3]/10 hover:bg-[#1da9c3]/20 transition-all"
+            >
+              Create an account
+            </Link>
+          </form>
         </div>
       </div>
     </div>

@@ -30,8 +30,8 @@ export default function Sidebar() {
   };
 
   const toggleSection = (section: string) => {
-    setExpandedSections(prev => 
-      prev.includes(section) 
+    setExpandedSections(prev =>
+      prev.includes(section)
         ? prev.filter(s => s !== section)
         : [...prev, section]
     );
@@ -152,9 +152,8 @@ export default function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-screen w-64 bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 transition-transform duration-300 z-40 lg:translate-x-0 flex flex-col ${
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`fixed left-0 top-0 h-screen w-64 bg-white dark:bg-gray-800 shadow-lg border-r border-gray-200 dark:border-gray-700 transition-transform duration-300 z-40 lg:translate-x-0 flex flex-col ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
       >
         {/* Logo Section */}
         <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
@@ -174,9 +173,9 @@ export default function Sidebar() {
           {navSections.map((section) => {
             const visibleItems = section.items.filter(item => item.show);
             if (visibleItems.length === 0) return null;
-            
+
             const isExpanded = expandedSections.includes(section.id);
-            
+
             return (
               <div key={section.id} className="mb-4">
                 <button
@@ -184,12 +183,12 @@ export default function Sidebar() {
                   className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:text-[#1da9c3] transition-colors"
                 >
                   <span>{section.label}</span>
-                  <ChevronDown 
-                    size={14} 
+                  <ChevronDown
+                    size={14}
                     className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                   />
                 </button>
-                
+
                 {isExpanded && (
                   <div className="space-y-1 mt-1">
                     {visibleItems.map((item) => {
@@ -216,11 +215,19 @@ export default function Sidebar() {
         {/* User Info & Logout */}
         <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-3 flex-shrink-0">
           <div className="flex items-center gap-3 px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <div className="w-9 h-9 bg-[#1da9c3] rounded-full flex items-center justify-center flex-shrink-0">
-              <span className="text-white text-xs font-medium">
-                {user?.first_name?.[0]}{user?.last_name?.[0]}
-              </span>
-            </div>
+            {user?.avatar ? (
+              <img
+                src={user.avatar}
+                alt="Profile"
+                className="w-9 h-9 rounded-full object-cover border-2 border-[#1da9c3]"
+              />
+            ) : (
+              <div className="w-9 h-9 bg-[#1da9c3] rounded-full flex items-center justify-center flex-shrink-0">
+                <span className="text-white text-xs font-medium">
+                  {user?.first_name?.[0]}{user?.last_name?.[0]}
+                </span>
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                 {user?.first_name} {user?.last_name}

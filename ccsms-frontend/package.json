@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "set \"TURBOPACK=0\" && next dev",
     "dev:windows": "set \"NEXT_TURBOPACK=0\" && next dev",
-    "dev:fast": "next dev",
+    "dev:fast": "next dev --turbo",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -21,6 +21,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.3.0",
+    "firebase": "^12.7.0",
     "lucide-react": "^0.356.0",
     "next": "^16.1.0-canary.20",
     "next-intl": "^4.6.0",

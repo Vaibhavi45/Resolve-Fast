@@ -2,6 +2,9 @@ import uuid
 from django.db import models
 from django.conf import settings
 
+# Import FCM Token model
+from .fcm_models import FCMToken
+
 class Notification(models.Model):
     TYPE_CHOICES = [
         ('EMAIL', 'Email'),

@@ -5,15 +5,12 @@ export function useAuthHydration() {
   const { hydrated, setHydrated } = useAuthStore();
 
   useEffect(() => {
-    // Force hydration after a short delay if it hasn't happened
-    const timer = setTimeout(() => {
-      if (!hydrated) {
-        setHydrated();
-      }
-    }, 100);
-
-    return () => clearTimeout(timer);
-  }, [hydrated, setHydrated]);
+    // Hydrate immediately on mount
+    if (!hydrated) {
+      setHydrated();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   return hydrated;
 }

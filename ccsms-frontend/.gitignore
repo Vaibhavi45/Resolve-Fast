@@ -9,8 +9,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# lib/
+# lib64/
 parts/
 sdist/
 var/
@@ -22,7 +22,7 @@ MANIFEST
 
 *.sql
 .env
-.env.*
+# .env.*
 .venv
 env/
 venv/
@@ -62,4 +62,4 @@ media/
 # Frontend
 node_modules/
 .next/
-.env*
+# .env*

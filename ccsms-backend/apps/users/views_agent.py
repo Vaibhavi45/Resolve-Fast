@@ -8,9 +8,6 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
 from .models import User
-from apps.complaints.models import Complaint
-from apps.complaints.models_assignment import AgentAssignmentRequest
-from apps.complaints.serializers import ComplaintSerializer
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -20,6 +17,9 @@ def agent_detail(request, agent_id):
         return Response({'error': 'Admin access required'}, status=status.HTTP_403_FORBIDDEN)
     
     agent = get_object_or_404(User, id=agent_id, role='AGENT')
+    
+    from apps.complaints.models import Complaint
+    from apps.complaints.serializers import ComplaintSerializer
     
     # Get assigned complaints
     assigned_complaints = Complaint.objects.filter(assigned_to=agent).order_by('-created_at')
@@ -54,6 +54,9 @@ def assign_complaint_to_agent(request):
     complaint_id = request.data.get('complaint_id')
     agent_id = request.data.get('agent_id')
     message = request.data.get('message', '')
+    
+    from apps.complaints.models import Complaint
+    from apps.complaints.models_assignment import AgentAssignmentRequest
     
     complaint = get_object_or_404(Complaint, id=complaint_id)
     agent = get_object_or_404(User, id=agent_id, role='AGENT')
@@ -112,6 +115,7 @@ def respond_to_assignment(request):
     response_type = request.data.get('response')  # 'accept' or 'reject'
     agent_message = request.data.get('message', '')
     
+    from apps.complaints.models_assignment import AgentAssignmentRequest
     assignment_request = get_object_or_404(AgentAssignmentRequest, id=request_id, agent=request.user)
     
     if assignment_request.status != 'PENDING':
@@ -173,6 +177,7 @@ def agent_pending_requests(request):
     if request.user.role != 'AGENT':
         return Response({'error': 'Agent access required'}, status=status.HTTP_403_FORBIDDEN)
     
+    from apps.complaints.models_assignment import AgentAssignmentRequest
     pending_requests = AgentAssignmentRequest.objects.filter(
         agent=request.user,
         status='PENDING',

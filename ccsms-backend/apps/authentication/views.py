@@ -5,7 +5,6 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
 from .serializers import RegisterSerializer, LoginSerializer, ChangePasswordSerializer
-from apps.audit.models import AuditLog
 from utils.email_service import send_welcome_email
 
 def get_client_ip(request):
@@ -19,6 +18,7 @@ def get_client_ip(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
+    from apps.audit.models import AuditLog
     serializer = RegisterSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
@@ -56,6 +56,7 @@ def register(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
+    from apps.audit.models import AuditLog
     serializer = LoginSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.validated_data['user']
@@ -91,6 +92,7 @@ def login(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def change_password(request):
+    from apps.audit.models import AuditLog
     serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
     if serializer.is_valid():
         user = request.user
