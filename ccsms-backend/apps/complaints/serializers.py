@@ -125,7 +125,7 @@ class ComplaintListSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Complaint
-        fields = ('id', 'complaint_number', 'title', 'category', 'priority', 'status',
+        fields = ('id', 'complaint_number', 'title', 'description', 'category', 'priority', 'status',
                  'customer', 'assigned_to', 'sla_deadline', 'sla_breached', 'created_at')
 
 class ComplaintUpdateSerializer(serializers.ModelSerializer):

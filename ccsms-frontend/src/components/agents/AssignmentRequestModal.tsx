@@ -51,18 +51,19 @@ export default function AssignmentRequestModal({ isOpen, onClose }: AssignmentRe
 
   const handleResponse = async (requestId: string, response: 'accept' | 'reject') => {
     try {
-      await api.post('/users/agent-management/respond-assignment/', {
-        request_id: requestId,
-        response: response,
-        message: responseMessage
+      await api.post(`/complaints/agent-assignment-requests/${requestId}/respond/`, {
+        action: response,
+        response: responseMessage
       });
 
       alert(`Assignment request ${response}ed successfully`);
       setResponseMessage('');
       setSelectedRequest(null);
       fetchPendingRequests(); // Refresh the list
-    } catch (error) {
-      alert(`Failed to ${response} assignment request`);
+      onClose(); // Close the modal after successful response
+    } catch (error: any) {
+      console.error(`Failed to ${response} assignment request:`, error);
+      alert(`Failed to ${response} assignment request: ${error.response?.data?.error || error.message}`);
     }
   };
 

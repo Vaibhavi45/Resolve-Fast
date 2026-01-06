@@ -34,6 +34,61 @@ function ComplaintDetailPageContent({ params }: { params: { id: string } }) {
     enabled: user?.role === 'ADMIN',
   });
 
+  // Fetch AI recommendations for unassigned complaints
+  const { data: aiRecommendations, isLoading: aiLoading, error: aiError } = useQuery({
+    queryKey: ['ai-recommendations', params.id],
+    queryFn: async () => {
+      console.log('[AI Recommendations] Starting fetch for complaint:', params.id);
+      console.log('[AI Recommendations] User role:', user?.role);
+      console.log('[AI Recommendations] Complaint status:', complaint?.status);
+
+      const authSession = sessionStorage.getItem('auth-session');
+      if (!authSession) {
+        console.error('[AI Recommendations] No auth session found');
+        throw new Error('Not authenticated');
+      }
+
+      const token = JSON.parse(authSession).state.accessToken;
+      console.log('[AI Recommendations] Token exists:', !!token);
+
+      const url = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api'}/complaints/${params.id}/ai-recommendations/`;
+      console.log('[AI Recommendations] Fetching from:', url);
+
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('[AI Recommendations] Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[AI Recommendations] Error response:', errorText);
+        throw new Error(`Failed to fetch recommendations: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[AI Recommendations] Success! Received data:', data);
+      console.log('[AI Recommendations] Number of recommendations:', data.recommendations?.length || 0);
+      return data;
+    },
+    enabled: !!user && user.role === 'ADMIN' && !!complaint && complaint.status === 'OPEN',
+    retry: 1,
+    staleTime: 30000 // Cache for 30 seconds
+  });
+
+  // Log AI recommendations state changes
+  React.useEffect(() => {
+    console.log('[AI Recommendations] State update:', {
+      loading: aiLoading,
+      error: aiError?.message,
+      hasData: !!aiRecommendations,
+      recommendationsCount: aiRecommendations?.recommendations?.length || 0
+    });
+  }, [aiLoading, aiError, aiRecommendations]);
+
   const assignMutation = useMutation({
     mutationFn: (agentId: string) => complaintsService.assign(params.id, agentId),
     onSuccess: () => {
@@ -310,14 +365,24 @@ function ComplaintDetailPageContent({ params }: { params: { id: string } }) {
                             {complaint.resolution_attachments.map((att: any) => (
                               <div key={att.id} className="border border-green-300 dark:border-green-700 rounded-lg p-3 bg-white dark:bg-gray-800">
                                 {att.mime_type?.startsWith('image/') ? (
-                                  <img src={att.file} alt={att.original_filename} className="w-full h-32 object-cover rounded mb-2" />
+                                  <img
+                                    src={att.file.startsWith('http') ? att.file : `http://localhost:8000${att.file}`}
+                                    alt={att.original_filename}
+                                    className="w-full h-32 object-cover rounded mb-2"
+                                  />
                                 ) : (
                                   <div className="w-full h-32 bg-green-100 dark:bg-green-800 rounded mb-2 flex items-center justify-center">
                                     <FileText size={40} className="text-green-600 dark:text-green-400" />
                                   </div>
                                 )}
                                 <p className="text-xs text-green-700 dark:text-green-300 truncate">{att.original_filename}</p>
-                                <a href={att.file} target="_blank" className="text-xs text-green-600 dark:text-green-400 hover:underline">Download</a>
+                                <a
+                                  href={att.file.startsWith('http') ? att.file : `http://localhost:8000${att.file}`}
+                                  target="_blank"
+                                  className="text-xs text-green-600 dark:text-green-400 hover:underline"
+                                >
+                                  Download
+                                </a>
                               </div>
                             ))}
                           </div>
@@ -326,26 +391,39 @@ function ComplaintDetailPageContent({ params }: { params: { id: string } }) {
                     </div>
                   )}
 
-                  {complaint.attachments && complaint.attachments.length > 0 && (
-                    <div>
-                      <p className="text-sm font-semibold mb-3 dark:text-white">Attachments ({complaint.attachments.length})</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        {complaint.attachments.map((att: any) => (
-                          <div key={att.id} className="border dark:border-gray-700 rounded-lg p-3">
-                            {att.mime_type?.startsWith('image/') ? (
-                              <img src={att.file} alt={att.original_filename} className="w-full h-32 object-cover rounded mb-2" />
-                            ) : (
-                              <div className="w-full h-32 bg-gray-100 dark:bg-gray-700 rounded mb-2 flex items-center justify-center">
-                                <FileText size={40} className="text-gray-400 dark:text-gray-500" />
-                              </div>
-                            )}
-                            <p className="text-xs text-gray-600 dark:text-gray-400 truncate">{att.original_filename}</p>
-                            <a href={att.file} target="_blank" className="text-xs text-blue-600 dark:text-blue-400 hover:underline">Download</a>
-                          </div>
-                        ))}
+                  {complaint.attachments && complaint.attachments.length > 0 && (() => {
+                    const customerAttachments = complaint.attachments.filter((att: any) => att.attachment_type !== 'RESOLUTION');
+                    return customerAttachments.length > 0 && (
+                      <div>
+                        <p className="text-sm font-semibold mb-3 dark:text-white">Attachments ({customerAttachments.length})</p>
+                        <div className="grid grid-cols-2 gap-3">
+                          {customerAttachments.map((att: any) => (
+                            <div key={att.id} className="border dark:border-gray-700 rounded-lg p-3">
+                              {att.mime_type?.startsWith('image/') ? (
+                                <img
+                                  src={att.file.startsWith('http') ? att.file : `http://localhost:8000${att.file}`}
+                                  alt={att.original_filename}
+                                  className="w-full h-32 object-cover rounded mb-2"
+                                />
+                              ) : (
+                                <div className="w-full h-32 bg-gray-100 dark:bg-gray-700 rounded mb-2 flex items-center justify-center">
+                                  <FileText size={40} className="text-gray-400 dark:text-gray-500" />
+                                </div>
+                              )}
+                              <p className="text-xs text-gray-600 dark:text-gray-400 truncate">{att.original_filename}</p>
+                              <a
+                                href={att.file.startsWith('http') ? att.file : `http://localhost:8000${att.file}`}
+                                target="_blank"
+                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                              >
+                                Download
+                              </a>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
 
@@ -388,13 +466,52 @@ function ComplaintDetailPageContent({ params }: { params: { id: string } }) {
                     <>
                       <div>
                         <label className="block text-sm font-semibold mb-2 dark:text-white">Assign Agent</label>
+
+                        {/* AI Recommendations */}
+                        {aiRecommendations?.recommendations && aiRecommendations.recommendations.length > 0 && (
+                          <div className="mb-4 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-lg">
+                            <div className="flex items-center gap-2 mb-3">
+                              <Bot className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                              <h4 className="font-semibold text-purple-900 dark:text-purple-100">AI Recommended Agents</h4>
+                            </div>
+                            <div className="space-y-2">
+                              {aiRecommendations.recommendations.map((rec: any) => (
+                                <div key={rec.agent_id} className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-purple-100 dark:border-purple-800">
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900 dark:text-white">{rec.agent_name}</div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                                      {rec.service_type} • {rec.current_workload} active cases
+                                    </div>
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 mt-1">{rec.reasoning}</div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="text-right">
+                                      <div className="text-sm font-bold text-purple-600 dark:text-purple-400">{rec.confidence_score}%</div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400">confidence</div>
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedAgent(rec.agent_id);
+                                        assignMutation.mutate(rec.agent_id);
+                                      }}
+                                      className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 transition-colors"
+                                    >
+                                      Assign
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="flex gap-2">
                           <select
                             value={selectedAgent}
                             onChange={(e) => setSelectedAgent(e.target.value)}
                             className="flex-1 px-3 py-2 border dark:border-gray-700 rounded-lg dark:bg-gray-700 dark:text-white"
                           >
-                            <option value="">Select agent</option>
+                            <option value="">Select agent manually</option>
                             {Array.isArray(agents) && agents.map((agent: any) => (
                               <option key={agent.id} value={agent.id}>
                                 {agent.first_name} {agent.last_name}
@@ -407,6 +524,24 @@ function ComplaintDetailPageContent({ params }: { params: { id: string } }) {
                             className="px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
                           >
                             Assign
+                          </button>
+                          <button
+                            onClick={async () => {
+                              console.log('[AI Auto-Assign] Button clicked');
+                              try {
+                                // Call assign API with empty assigned_to to trigger AI assignment
+                                await complaintsService.assign(params.id, '');
+                                alert('✅ AI is assigning the best agent...');
+                                queryClient.invalidateQueries({ queryKey: ['complaint', params.id] });
+                              } catch (error: any) {
+                                console.error('[AI Auto-Assign] Error:', error);
+                                alert('❌ ' + (error.response?.data?.error || 'Failed to auto-assign'));
+                              }
+                            }}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-purple-700 transition-colors flex items-center gap-2"
+                          >
+                            <Sparkles size={16} />
+                            AI Auto-Assign
                           </button>
                         </div>
                       </div>

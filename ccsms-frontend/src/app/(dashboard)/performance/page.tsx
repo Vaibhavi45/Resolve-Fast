@@ -33,12 +33,12 @@ export default function PerformancePage() {
   const isAdmin = user?.role === 'ADMIN';
 
   // Calculate stats
-  const avgRating = feedback?.length > 0 
-    ? (feedback.reduce((sum: number, f: any) => sum + (f.agent_rating || f.rating), 0) / feedback.length).toFixed(1)
+  const avgRating = feedback?.length > 0
+    ? (feedback.reduce((sum: number, f: any) => sum + f.rating, 0) / feedback.length).toFixed(1)
     : '0.0';
-  
+
   const totalFeedback = feedback?.length || 0;
-  const positiveCount = feedback?.filter((f: any) => (f.agent_rating || f.rating) >= 4).length || 0;
+  const positiveCount = feedback?.filter((f: any) => f.rating >= 4).length || 0;
   const positiveRate = totalFeedback > 0 ? Math.round((positiveCount / totalFeedback) * 100) : 0;
 
   return (
@@ -74,7 +74,7 @@ export default function PerformancePage() {
           <div className="text-3xl font-bold mb-1">{avgRating}</div>
           <div className="text-sm opacity-90">Average Rating</div>
         </div>
-        
+
         <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <CheckCircle size={24} className="opacity-80" />
@@ -83,7 +83,7 @@ export default function PerformancePage() {
           <div className="text-3xl font-bold mb-1">{positiveRate}%</div>
           <div className="text-sm opacity-90">Satisfaction Rate</div>
         </div>
-        
+
         <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <MessageSquare size={24} className="opacity-80" />
@@ -92,7 +92,7 @@ export default function PerformancePage() {
           <div className="text-3xl font-bold mb-1">{totalFeedback}</div>
           <div className="text-sm opacity-90">Feedback Received</div>
         </div>
-        
+
         <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg">
           <div className="flex items-center justify-between mb-2">
             <Award size={24} className="opacity-80" />
@@ -152,12 +152,11 @@ export default function PerformancePage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`px-3 py-1 text-xs font-bold rounded-full ${
-                          grade === 'A+' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                        <span className={`px-3 py-1 text-xs font-bold rounded-full ${grade === 'A+' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
                           grade === 'A' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                          grade === 'B' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                          'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                        }`}>
+                            grade === 'B' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+                              'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                          }`}>
                           {grade}
                         </span>
                       </td>
@@ -198,7 +197,7 @@ export default function PerformancePage() {
                         <Star
                           key={star}
                           size={16}
-                          className={star <= (fb.agent_rating || fb.rating) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300 dark:text-gray-600'}
+                          className={star <= fb.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300 dark:text-gray-600'}
                         />
                       ))}
                     </div>

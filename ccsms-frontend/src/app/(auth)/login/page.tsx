@@ -8,7 +8,7 @@ import * as z from 'zod';
 import Link from 'next/link';
 import { authService } from '@/lib/api/services/auth.service';
 import { useAuthStore } from '@/lib/stores/auth.store';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -24,6 +24,10 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [loginAttempts, setLoginAttempts] = useState(0);
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const [rateLimitTime, setRateLimitTime] = useState<number | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -31,14 +35,47 @@ export default function LoginPage() {
     if (searchParams.get('registered') === 'true') {
       setError('');
     }
+
+    // Check for existing rate limit
+    const rateLimitData = localStorage.getItem('loginRateLimit');
+    if (rateLimitData) {
+      const { attempts, timestamp } = JSON.parse(rateLimitData);
+      const fifteenMinutes = 15 * 60 * 1000;
+      const timePassed = Date.now() - timestamp;
+
+      if (timePassed < fifteenMinutes && attempts >= 5) {
+        setIsRateLimited(true);
+        setLoginAttempts(attempts);
+        setRateLimitTime(timestamp + fifteenMinutes);
+      } else if (timePassed >= fifteenMinutes) {
+        localStorage.removeItem('loginRateLimit');
+      }
+    }
   }, [searchParams]);
+
+  // Rate limit countdown
+  useEffect(() => {
+    if (!isRateLimited || !rateLimitTime) return;
+
+    const interval = setInterval(() => {
+      const timeLeft = rateLimitTime - Date.now();
+      if (timeLeft <= 0) {
+        setIsRateLimited(false);
+        setLoginAttempts(0);
+        setRateLimitTime(null);
+        localStorage.removeItem('loginRateLimit');
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRateLimited, rateLimitTime]);
 
   const { register, handleSubmit, formState: { errors } } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   });
 
   const onSubmit = async (data: LoginFormData) => {
-    if (loading) return; // Prevent double submission
+    if (loading || isRateLimited) return; // Prevent double submission and rate limited attempts
 
     setLoading(true);
     setError('');
@@ -55,6 +92,9 @@ export default function LoginPage() {
 
       setAuth(response.user, accessToken, refreshToken);
 
+      // Clear rate limit on successful login
+      localStorage.removeItem('loginRateLimit');
+
       // Initialize FCM after successful login
       try {
         const { initializeFCM } = await import('@/lib/firebase/messaging');
@@ -68,17 +108,34 @@ export default function LoginPage() {
     } catch (err: any) {
       console.error('Login error:', err);
 
-      // Handle network errors specifically
-      if (err.isNetworkError || err.message?.includes('Network Error') || err.code === 'ECONNABORTED') {
-        setError('Cannot connect to server. Please ensure the backend is running on http://localhost:8000');
-      } else if (err.response?.status === 0 || !err.response) {
-        setError('Network Error: Backend server is not running. Please start the Django server.');
+      // Increment login attempts
+      const newAttempts = loginAttempts + 1;
+      setLoginAttempts(newAttempts);
+
+      const rateLimitData = {
+        attempts: newAttempts,
+        timestamp: Date.now(),
+      };
+      localStorage.setItem('loginRateLimit', JSON.stringify(rateLimitData));
+
+      // Check if rate limit reached
+      if (newAttempts >= 5) {
+        setIsRateLimited(true);
+        setRateLimitTime(Date.now() + 15 * 60 * 1000);
+        setError('Too many failed login attempts. Please try again in 15 minutes.');
       } else {
-        const errorMessage = err.response?.data?.detail ||
-          err.response?.data?.non_field_errors?.[0] ||
-          err.message ||
-          'Login failed. Please check your credentials and try again.';
-        setError(errorMessage);
+        // Handle network errors specifically
+        if (err.isNetworkError || err.message?.includes('Network Error') || err.code === 'ECONNABORTED') {
+          setError('Cannot connect to server. Please ensure the backend is running on http://localhost:8000');
+        } else if (err.response?.status === 0 || !err.response) {
+          setError('Network Error: Backend server is not running. Please start the Django server.');
+        } else {
+          const errorMessage = err.response?.data?.detail ||
+            err.response?.data?.non_field_errors?.[0] ||
+            err.message ||
+            'Login failed. Please check your credentials and try again.';
+          setError(`${errorMessage} (Attempt ${newAttempts}/5)`);
+        }
       }
     } finally {
       setLoading(false);
@@ -160,29 +217,41 @@ export default function LoginPage() {
                   {...register('email')}
                   type="email"
                   autoComplete="email"
-                  disabled={loading}
+                  disabled={loading || isRateLimited}
                   className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   placeholder="Enter your email"
                 />
                 {errors.email && <p className="text-red-500 dark:text-red-400 text-xs mt-1.5">{errors.email.message}</p>}
               </div>
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
-                <input
-                  {...register('password')}
-                  type="password"
-                  autoComplete="current-password"
-                  disabled={loading}
-                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  placeholder="Enter your password"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
+                  <Link href="#" className="text-xs text-[#1da9c3] hover:text-[#178a9f] font-medium">Forgot password?</Link>
+                </div>
+                <div className="relative">
+                  <input
+                    {...register('password')}
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    disabled={loading || isRateLimited}
+                    className="w-full px-4 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    placeholder="Enter your password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
                 {errors.password && <p className="text-red-500 dark:text-red-400 text-xs mt-1.5">{errors.password.message}</p>}
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || isRateLimited}
               className="w-full flex justify-center items-center gap-2 py-3 px-4 text-sm font-semibold rounded-xl text-white bg-[#1da9c3] hover:bg-[#178a9f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#1da9c3] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               {loading ? (

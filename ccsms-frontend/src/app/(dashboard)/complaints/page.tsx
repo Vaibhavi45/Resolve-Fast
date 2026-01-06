@@ -38,10 +38,10 @@ export default function ComplaintsPage() {
 
       {(() => {
         const complaintsList = Array.isArray(complaints) ? complaints : (complaints?.results || []);
-        const filteredComplaints = user?.role === 'AGENT' 
+        const filteredComplaints = user?.role === 'AGENT'
           ? complaintsList.filter((c: any) => c.assigned_to?.id === user?.id)
           : complaintsList;
-        
+
         return filteredComplaints.length > 0 ? (
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
             <div className="overflow-x-auto">
@@ -68,11 +68,10 @@ export default function ComplaintsPage() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${
-                            complaint.priority === 'CRITICAL' ? 'bg-red-500' :
-                            complaint.priority === 'HIGH' ? 'bg-orange-500' :
-                            complaint.priority === 'MEDIUM' ? 'bg-yellow-500' : 'bg-blue-500'
-                          }`}></span>
+                          <span className={`w-2 h-2 rounded-full ${complaint.priority === 'CRITICAL' ? 'bg-red-500' :
+                              complaint.priority === 'HIGH' ? 'bg-orange-500' :
+                                complaint.priority === 'MEDIUM' ? 'bg-yellow-500' : 'bg-blue-500'
+                            }`}></span>
                           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{complaint.priority}</span>
                         </div>
                       </td>
@@ -86,11 +85,16 @@ export default function ComplaintsPage() {
                         <span className="text-sm text-gray-600 dark:text-gray-400">{new Date(complaint.created_at).toLocaleDateString()}</span>
                       </td>
                       <td className="px-6 py-4">
-                        {complaint.assigned_to ? (
-                          <span className="text-sm text-gray-700 dark:text-gray-300">{complaint.assigned_to.first_name}</span>
-                        ) : (
-                          <span className="text-xs text-gray-400 dark:text-gray-500 italic">Unassigned</span>
-                        )}
+                        {(() => {
+                          console.log('Complaint:', complaint.complaint_number, 'assigned_to:', complaint.assigned_to);
+                          return complaint.assigned_to ? (
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              {complaint.assigned_to.first_name} {complaint.assigned_to.last_name}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400 dark:text-gray-500 italic">Unassigned</span>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}
@@ -104,10 +108,10 @@ export default function ComplaintsPage() {
               <FileText size={64} className="mx-auto opacity-30" />
             </div>
             <p className="text-gray-600 dark:text-gray-400 text-lg">
-              {user?.role === 'AGENT' 
-                ? 'No complaints assigned to you yet.' 
-                : user?.role === 'CUSTOMER' 
-                  ? 'No complaints found. Create your first complaint!' 
+              {user?.role === 'AGENT'
+                ? 'No complaints assigned to you yet.'
+                : user?.role === 'CUSTOMER'
+                  ? 'No complaints found. Create your first complaint!'
                   : 'No complaints found.'}
             </p>
           </div>

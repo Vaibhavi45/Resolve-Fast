@@ -2,8 +2,19 @@ import { getToken, onMessage, deleteToken } from 'firebase/messaging';
 import { messaging } from './config';
 import api from '../api/axios';
 
-// Replace with your VAPID key from Firebase Console
-const VAPID_KEY = 'BJPYozlY2qhBhLrMVpQqVDNxLLBdwJLqzGxfGFOXaJFfFJbHdxCathBcuas1qXElM';
+// VAPID key from Firebase Console (Cloud Messaging → Web Push certificates)
+// Get from: Firebase Console → Project Settings → Cloud Messaging → Web Push certificates → Generate key pair
+// Set NEXT_PUBLIC_FIREBASE_VAPID_KEY in .env.local
+const VAPID_KEY = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || '';
+
+// Validate VAPID key format (should be base64 string starting with 'B' and ~88 characters)
+const isValidVapidKey = (key: string): boolean => {
+    if (!key || key.length < 80) return false;
+
+    // Regular expression for standard or URL-safe base64
+    const base64Regex = /^[A-Za-z0-9+/=_-]+$/;
+    return base64Regex.test(key);
+};
 
 /**
  * Request notification permission and get FCM token
@@ -35,42 +46,54 @@ export async function requestNotificationPermission(): Promise<string | null> {
 
                     await navigator.serviceWorker.ready;
                 } catch (swError) {
-                    console.error('Service Worker registration failed:', swError);
+                    console.warn('Service Worker registration failed - desktop notifications will not work:', swError);
+                    return null;
                 }
             }
 
             // Get FCM token
             try {
+                // Validate VAPID key before attempting to get token
+                if (!isValidVapidKey(VAPID_KEY)) {
+                    console.warn('Invalid or missing VAPID key. Desktop notifications disabled.');
+                    console.info('To enable: Set NEXT_PUBLIC_FIREBASE_VAPID_KEY in .env.local');
+                    return null;
+                }
+
                 const token = await getToken(messaging, {
                     vapidKey: VAPID_KEY,
                     serviceWorkerRegistration: registration
                 });
-                console.log('FCM Token retrieved:', token);
-                return token;
-            } catch (tokenError: any) {
-                console.error('Error getting FCM token details:', tokenError);
 
-                if (tokenError.message?.includes('push service error') || tokenError.code === 'messaging/failed-serviceworker-registration') {
-                    console.warn('Push service error detected, trying to unregister and re-register SW...');
-                    if (registration) {
-                        await registration.unregister();
-                        const newRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-                        await navigator.serviceWorker.ready;
-                        return await getToken(messaging, {
-                            vapidKey: VAPID_KEY,
-                            serviceWorkerRegistration: newRegistration
-                        });
-                    }
+                if (token) {
+                    console.log('✅ FCM Token retrieved successfully - desktop notifications enabled!');
+                    return token;
                 }
 
+                console.warn('No FCM token received - desktop notifications disabled');
+                return null;
+            } catch (tokenError: any) {
+                // Handle push service errors gracefully
+                if (tokenError.message?.includes('push service error') ||
+                    tokenError.message?.includes('Registration failed') ||
+                    tokenError.code === 'messaging/failed-serviceworker-registration') {
+                    console.warn('⚠️ Browser push service unavailable - desktop notifications disabled');
+                    console.info('This is usually due to browser settings or extensions blocking push notifications');
+                    console.info('The app will continue to work normally with in-app notifications');
+                    return null;
+                }
+
+                console.warn('Failed to get FCM token:', tokenError.message);
+                console.info('Desktop notifications disabled - app will use in-app notifications only');
                 return null;
             }
         } else {
-            console.log('Notification permission denied');
+            console.warn('Notification permission denied or dismissed');
             return null;
         }
-    } catch (error) {
-        console.error('Error getting notification permission:', error);
+    } catch (error: any) {
+        console.warn('Notification setup failed:', error.message);
+        console.info('App will continue with in-app notifications only');
         return null;
     }
 }
@@ -116,7 +139,7 @@ export async function unregisterFCMToken(token: string): Promise<boolean> {
 }
 
 /**
- * Listen for foreground messages
+ * Listen for foreground messages and show desktop notifications
  */
 export function onForegroundMessage(callback: (payload: any) => void) {
     if (!messaging) {
@@ -128,13 +151,37 @@ export function onForegroundMessage(callback: (payload: any) => void) {
         console.log('Foreground message received:', payload);
         callback(payload);
 
+        // Always show desktop notification for foreground messages
         if (payload.notification) {
-            new Notification(payload.notification.title || 'New Notification', {
-                body: payload.notification.body,
+            const notificationTitle = payload.notification.title || 'New Notification';
+            const notificationOptions: NotificationOptions = {
+                body: payload.notification.body || '',
                 icon: '/favicon.ico',
                 badge: '/favicon.ico',
-                data: payload.data
-            });
+                data: payload.data,
+                tag: payload.data?.type || 'notification',
+                requireInteraction: false // Auto-dismiss after a few seconds
+            };
+
+            // Check if we have permission
+            if (Notification.permission === 'granted') {
+                const notification = new Notification(notificationTitle, notificationOptions);
+
+                // Handle notification click
+                notification.onclick = (event) => {
+                    event.preventDefault();
+                    window.focus();
+
+                    // Navigate to complaint if complaint_id is present
+                    if (payload.data?.complaint_id) {
+                        window.location.href = `/complaints/${payload.data.complaint_id}`;
+                    }
+
+                    notification.close();
+                };
+            } else {
+                console.warn('Notification permission not granted. Current permission:', Notification.permission);
+            }
         }
     });
 }

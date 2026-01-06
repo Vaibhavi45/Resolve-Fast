@@ -21,10 +21,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         if attrs.get('role') == 'AGENT':
             if not attrs.get('service_type'):
                 raise serializers.ValidationError({"service_type": "Service type is required for agents"})
-            if not attrs.get('service_card_id'):
-                raise serializers.ValidationError({"service_card_id": "Service card ID is required for agents"})
-            # Check if service_card_id is unique
-            if User.objects.filter(service_card_id=attrs.get('service_card_id')).exists():
+            # Check if service_card_id is unique (if provided)
+            service_card_id = attrs.get('service_card_id')
+            if service_card_id and User.objects.filter(service_card_id=service_card_id).exists():
                 raise serializers.ValidationError({"service_card_id": "Service card ID already exists"})
         
         return attrs
@@ -32,16 +31,18 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('confirm_password')
         email = validated_data.pop('email')
+        password = validated_data.pop('password')
         role = validated_data.get('role', 'CUSTOMER')
         
         # For agents, set is_verified to False initially (admin will verify)
         if role == 'AGENT':
             validated_data['is_verified'] = False
         
-        # Set username to email since USERNAME_FIELD is email
+        # Create user with email as the username field
         user = User.objects.create_user(
+            username=email,  # Django's default UserManager requires username
             email=email,
-            username=email,
+            password=password,
             **validated_data
         )
         return user

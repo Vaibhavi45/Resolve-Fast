@@ -14,7 +14,7 @@ export default function NewComplaintPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState('');
   const { register, handleSubmit, watch, formState: { errors } } = useForm();
-  
+
   const isCustomer = user?.role === 'CUSTOMER';
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,16 +29,17 @@ export default function NewComplaintPage() {
 
   const onSubmit = async (data: any) => {
     if (loading) return;
-    
+
     setLoading(true);
     setError('');
-    
+
     try {
+      console.log('Submitting complaint with data:', data);
       const formData = new FormData();
       formData.append('title', data.title);
       formData.append('description', data.description);
       formData.append('category', data.category);
-      
+
       // For customers: send expected_resolution_days instead of priority
       if (isCustomer) {
         if (data.expected_days) {
@@ -50,42 +51,46 @@ export default function NewComplaintPage() {
         // For agents/admins: send priority
         formData.append('priority', data.priority || 'MEDIUM');
       }
-      
+
       // Add pincode (required for auto-assignment)
       if (data.pincode) {
         formData.append('pincode', data.pincode);
       }
-      
+
       // Add location if provided
       if (data.location) {
         formData.append('location', data.location);
       }
-      
+
       // Add service type if product complaint
       if (data.category === 'PRODUCT_QUALITY' && data.service_type) {
         formData.append('service_type_required', data.service_type);
       }
-      
+
       // Add service delivery type for product complaints
       if (data.category === 'PRODUCT_QUALITY' && data.service_delivery_type) {
         formData.append('service_delivery_type', data.service_delivery_type);
       }
-      
+
       // Add attachments
       files.forEach((file) => {
         formData.append('attachments', file);
       });
 
+      console.log('Calling complaintsService.create...');
       const response = await complaintsService.create(formData);
+      console.log('Complaint created successfully:', response);
       alert(`Complaint created successfully! Number: ${response.complaint_number}`);
       router.push('/complaints');
     } catch (error: any) {
       console.error('Create complaint error:', error);
-      const errorMsg = error.response?.data?.detail || 
-                      error.response?.data?.error ||
-                      error.message || 
-                      'Failed to create complaint. Please try again.';
+      console.error('Error response:', error.response);
+      const errorMsg = error.response?.data?.detail ||
+        error.response?.data?.error ||
+        error.message ||
+        'Failed to create complaint. Please try again.';
       setError(errorMsg);
+      alert('Error: ' + errorMsg);
     } finally {
       setLoading(false);
     }
@@ -95,7 +100,7 @@ export default function NewComplaintPage() {
     <div className="max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-2 dark:text-white">New Complaint</h1>
       <p className="text-gray-600 dark:text-gray-400 mb-8">What is this regarding?</p>
-      
+
       <form onSubmit={handleSubmit(onSubmit)} className="bg-white dark:bg-gray-800 shadow rounded-lg p-8 space-y-6">
         {error && (
           <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-4">
@@ -138,7 +143,7 @@ export default function NewComplaintPage() {
               <div>
                 <input
                   type="number"
-                  {...register('expected_days', { 
+                  {...register('expected_days', {
                     required: 'Please specify expected resolution time',
                     min: { value: 1, message: 'Minimum 1 day' },
                     max: { value: 30, message: 'Maximum 30 days' }
@@ -184,7 +189,7 @@ export default function NewComplaintPage() {
             </div>
           </div>
         )}
-        
+
         <div>
           <label className="block text-sm font-semibold mb-2 dark:text-white">
             Pincode <span className="text-red-500">*</span>
@@ -205,7 +210,7 @@ export default function NewComplaintPage() {
             Required for automatic assignment to nearest service agent
           </p>
         </div>
-        
+
         <div>
           <label className="block text-sm font-semibold mb-2 dark:text-white">Location (Optional)</label>
           <input
@@ -214,7 +219,7 @@ export default function NewComplaintPage() {
             placeholder="City or location where issue occurred"
           />
         </div>
-        
+
         {watch('category') === 'PRODUCT_QUALITY' && (
           <>
             <div>
@@ -230,7 +235,7 @@ export default function NewComplaintPage() {
                 Type of service needed for this product issue
               </p>
             </div>
-            
+
             <div>
               <label className="block text-sm font-semibold mb-2 dark:text-white">
                 Service Delivery Method
@@ -298,7 +303,7 @@ export default function NewComplaintPage() {
               <Upload size={16} /> Add
             </button>
           </div>
-          
+
           <input
             id="file-upload"
             type="file"
@@ -332,7 +337,7 @@ export default function NewComplaintPage() {
                 )}
               </div>
             ))}
-            
+
             {files.length === 0 && (
               <div
                 onClick={() => document.getElementById('file-upload')?.click()}
@@ -343,7 +348,7 @@ export default function NewComplaintPage() {
               </div>
             )}
           </div>
-          
+
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Max file size 10MB. Formats: JPG, PNG, PDF</p>
         </div>
 

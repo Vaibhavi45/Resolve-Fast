@@ -20,9 +20,10 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export function NotificationProvider({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const isAuthPage = pathname?.startsWith('/login') || pathname?.startsWith('/register');
+    const isLandingPage = pathname === '/';
 
-    // Don't initialize on auth pages
-    if (isAuthPage) {
+    // Don't initialize on auth pages or landing page
+    if (isAuthPage || isLandingPage) {
         const emptyValue: NotificationContextType = {
             notifications: [],
             unreadCount: 0,
@@ -92,18 +93,55 @@ function NotificationProviderInner({ children }: { children: ReactNode }) {
     }, [refreshNotifications]);
 
     const requestPermission = useMemo(() => async () => {
-        if (typeof window === 'undefined' || !('Notification' in window)) return;
+        if (typeof window === 'undefined' || !('Notification' in window)) {
+            console.warn('Notifications not supported in this browser');
+            return;
+        }
 
         try {
-            const { initializeFCM } = await import('@/lib/firebase/messaging');
-            const token = await initializeFCM();
-            if (token) {
-                setFcmToken(token);
+            console.log('Current notification permission:', Notification.permission);
+
+            if (Notification.permission === 'granted') {
+                console.log('Notification permission already granted');
                 setPermission('granted');
-                localStorage.setItem('fcm_token', token);
+
+                // Initialize FCM
+                const { initializeFCM } = await import('@/lib/firebase/messaging');
+                const token = await initializeFCM();
+                console.log('FCM initialized with token:', token ? 'Token received' : 'No token');
+                setFcmToken(token);
+                return;
+            }
+
+            if (Notification.permission === 'denied') {
+                console.warn('Notification permission denied. Please enable in browser settings.');
+                setPermission('denied');
+                return;
+            }
+
+            // Request permission
+            console.log('Requesting notification permission...');
+            const permission = await Notification.requestPermission();
+            console.log('Permission result:', permission);
+            setPermission(permission);
+
+            if (permission === 'granted') {
+                console.log('Permission granted! Initializing FCM...');
+                const { initializeFCM } = await import('@/lib/firebase/messaging');
+                const token = await initializeFCM();
+                console.log('FCM Token:', token ? 'Received' : 'Failed');
+                setFcmToken(token);
+
+                // Show a test notification
+                new Notification('Notifications Enabled!', {
+                    body: 'You will now receive desktop notifications for complaint updates.',
+                    icon: '/favicon.ico'
+                });
+            } else {
+                console.warn('Notification permission not granted:', permission);
             }
         } catch (error) {
-            console.warn('FCM initialization failed:', error);
+            console.error('Error requesting notification permission:', error);
         }
     }, []);
 
@@ -118,11 +156,21 @@ function NotificationProviderInner({ children }: { children: ReactNode }) {
             setPermission(Notification.permission);
             const storedToken = localStorage.getItem('fcm_token');
             if (storedToken) setFcmToken(storedToken);
+
+            // Auto-request permission if not yet asked
+            if (Notification.permission === 'default') {
+                console.log('Auto-requesting notification permission...');
+                setTimeout(() => requestPermission(), 1000); // Delay to avoid blocking page load
+            } else if (Notification.permission === 'granted' && !storedToken) {
+                // Permission granted but no token, initialize FCM
+                console.log('Permission granted, initializing FCM...');
+                requestPermission();
+            }
         }
 
         // Initial fetch
         refreshNotifications();
-    }, [initialized, refreshNotifications]);
+    }, [initialized, refreshNotifications, requestPermission]);
 
     // Setup foreground listener once
     useEffect(() => {

@@ -1,23 +1,42 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import Link from 'next/link';
 import { authService } from '@/lib/api/services/auth.service';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
 
 const registerSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  email: z.string()
+    .email('Invalid email address')
+    .min(1, 'Email is required'),
+  password: z.string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one number')
+    .regex(/[^A-Za-z0-9]/, 'Password must contain at least one special character'),
   confirm_password: z.string(),
-  first_name: z.string().min(1, 'First name is required'),
-  last_name: z.string().min(1, 'Last name is required'),
-  phone: z.string().optional(),
+  first_name: z.string()
+    .min(1, 'First name is required')
+    .max(50, 'First name is too long'),
+  last_name: z.string()
+    .min(1, 'Last name is required')
+    .max(50, 'Last name is too long'),
+  phone: z.string()
+    .optional()
+    .refine((val) => !val || /^(\+91)?[6-9]\d{9}$/.test(val), {
+      message: 'Phone must be a valid 10-digit Indian number (optionally with +91)',
+    }),
   role: z.enum(['CUSTOMER', 'AGENT', 'ADMIN']),
-  pincode: z.string().optional(),
+  pincode: z.string()
+    .optional()
+    .refine((val) => !val || /^\d{6}$/.test(val), {
+      message: 'Pincode must be exactly 6 digits',
+    }),
   service_type: z.string().optional(),
   service_card_id: z.string().optional(),
 }).refine((data) => data.password === data.confirm_password, {
@@ -31,6 +50,8 @@ export default function RegisterPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const { register, handleSubmit, watch, formState: { errors } } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
@@ -40,21 +61,47 @@ export default function RegisterPage() {
   });
 
   const selectedRole = watch('role');
+  const password = watch('password');
+
+  // Password strength calculator
+  const passwordStrength = useMemo(() => {
+    if (!password) return { score: 0, label: '', color: '' };
+
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+
+    if (score <= 2) return { score, label: 'Weak', color: 'bg-red-500' };
+    if (score <= 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
+    return { score, label: 'Strong', color: 'bg-green-500' };
+  }, [password]);
 
   const onSubmit = async (data: RegisterFormData) => {
     if (loading) return;
-    
+
     setLoading(true);
     setError('');
 
     try {
-      await authService.register(data);
+      // Remove empty optional fields
+      const submitData = {
+        ...data,
+        phone: data.phone || undefined,
+        pincode: data.pincode || undefined,
+        service_type: data.service_type || undefined,
+        service_card_id: data.service_card_id || undefined,
+      };
+
+      await authService.register(submitData);
       router.push('/login?registered=true');
     } catch (err: any) {
       const errorMessage = err.response?.data?.email?.[0] ||
-                          err.response?.data?.message || 
-                          err.message || 
-                          'Registration failed. Please try again.';
+        err.response?.data?.message ||
+        err.message ||
+        'Registration failed. Please try again.';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -115,7 +162,7 @@ export default function RegisterPage() {
                 <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
               </div>
             )}
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">First Name</label>
@@ -201,7 +248,7 @@ export default function RegisterPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Service Card ID</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Service Card ID (Optional)</label>
                   <input
                     {...register('service_card_id')}
                     type="text"
@@ -215,25 +262,61 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
-              <input
-                {...register('password')}
-                type="password"
-                disabled={loading}
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 transition-all"
-                placeholder="Min. 6 characters"
-              />
+              <div className="relative">
+                <input
+                  {...register('password')}
+                  type={showPassword ? 'text' : 'password'}
+                  disabled={loading}
+                  className="w-full px-4 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 transition-all"
+                  placeholder="Min. 8 characters with uppercase, lowercase, number & special char"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              {password && (
+                <div className="mt-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="flex-1 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${passwordStrength.color} transition-all duration-300`}
+                        style={{ width: `${(passwordStrength.score / 5) * 100}%` }}
+                      />
+                    </div>
+                    <span className={`text-xs font-medium ${passwordStrength.label === 'Weak' ? 'text-red-500' :
+                      passwordStrength.label === 'Medium' ? 'text-yellow-500' :
+                        'text-green-500'
+                      }`}>
+                      {passwordStrength.label}
+                    </span>
+                  </div>
+                </div>
+              )}
               {errors.password && <p className="text-red-500 text-xs mt-1.5">{errors.password.message}</p>}
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Confirm Password</label>
-              <input
-                {...register('confirm_password')}
-                type="password"
-                disabled={loading}
-                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 transition-all"
-                placeholder="Re-enter password"
-              />
+              <div className="relative">
+                <input
+                  {...register('confirm_password')}
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  disabled={loading}
+                  className="w-full px-4 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-[#1da9c3] focus:border-transparent disabled:opacity-50 transition-all"
+                  placeholder="Re-enter password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
               {errors.confirm_password && <p className="text-red-500 text-xs mt-1.5">{errors.confirm_password.message}</p>}
             </div>
 
@@ -261,8 +344,8 @@ export default function RegisterPage() {
               </div>
             </div>
 
-            <Link 
-              href="/login" 
+            <Link
+              href="/login"
               className="w-full flex justify-center py-3 px-4 text-sm font-semibold rounded-xl text-[#1da9c3] bg-[#1da9c3]/10 hover:bg-[#1da9c3]/20 transition-all"
             >
               Sign in to your account

@@ -18,7 +18,7 @@ firebase.initializeApp({
 // Retrieve an instance of Firebase Messaging
 const messaging = firebase.messaging();
 
-// Handle background messages
+// Handle background messages (when app is not in focus)
 messaging.onBackgroundMessage((payload) => {
     console.log('[firebase-messaging-sw.js] Received background message:', payload);
 
@@ -29,7 +29,13 @@ messaging.onBackgroundMessage((payload) => {
         badge: '/favicon.ico',
         data: payload.data,
         tag: payload.data?.type || 'notification',
-        requireInteraction: false,
+        requireInteraction: false, // Auto-dismiss after a few seconds
+        vibrate: [200, 100, 200], // Vibration pattern
+        // Add action buttons
+        actions: payload.data?.complaint_id ? [
+            { action: 'view', title: 'View Complaint', icon: '/favicon.ico' },
+            { action: 'dismiss', title: 'Dismiss' }
+        ] : []
     };
 
     return self.registration.showNotification(notificationTitle, notificationOptions);
@@ -41,19 +47,33 @@ self.addEventListener('notificationclick', (event) => {
 
     event.notification.close();
 
-    // Navigate to the app when notification is clicked
+    // Handle action button clicks
+    if (event.action === 'dismiss') {
+        return; // Just close the notification
+    }
+
+    // Navigate to the complaint or app
+    const urlToOpen = event.notification.data?.complaint_id
+        ? `${self.location.origin}/complaints/${event.notification.data.complaint_id}`
+        : self.location.origin;
+
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-            // If app is already open, focus it
+            // If app is already open, focus it and navigate
             for (const client of clientList) {
                 if (client.url.includes(self.location.origin) && 'focus' in client) {
-                    return client.focus();
+                    client.focus();
+                    // Navigate to the complaint page
+                    if (event.notification.data?.complaint_id) {
+                        client.navigate(urlToOpen);
+                    }
+                    return client;
                 }
             }
 
-            // Otherwise, open a new window
+            // Otherwise, open a new window with the URL
             if (clients.openWindow) {
-                return clients.openWindow('/');
+                return clients.openWindow(urlToOpen);
             }
         })
     );

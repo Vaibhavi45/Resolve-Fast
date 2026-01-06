@@ -114,7 +114,8 @@ def agent_performance(request):
             created_at__gte=start_date
         )
         avg_satisfaction = feedbacks.aggregate(avg_rating=Avg('rating'))['avg_rating'] or 0
-        avg_agent_rating = feedbacks.aggregate(avg_agent_rating=Avg('agent_rating'))['avg_agent_rating'] or 0
+        # Convert to percentage (0-100 scale)
+        satisfaction_percentage = round((avg_satisfaction / 5.0) * 100, 2) if avg_satisfaction > 0 else 0
         
         performance_data.append({
             'agent_id': str(agent.id),
@@ -124,8 +125,9 @@ def agent_performance(request):
             'resolved_count': resolved_complaints.count(),
             'avg_resolution_time': 0,
             'sla_compliance_rate': 0,
-            'customer_satisfaction_avg': round(avg_satisfaction, 2),
-            'agent_rating_avg': round(avg_agent_rating, 2)
+            'customer_satisfaction_avg': round(avg_satisfaction, 2),  # Keep raw rating for display
+            'satisfaction_percentage': satisfaction_percentage,  # Add percentage field
+            'agent_rating_avg': round(avg_satisfaction, 2)  # Use same as satisfaction for consistency
         })
     
     return Response(performance_data)

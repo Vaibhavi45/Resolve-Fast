@@ -14,6 +14,10 @@ from utils.permissions import IsComplaintOwnerOrAgent, IsComplaintOwner
 from utils.email_service import send_complaint_created_email, send_status_changed_email, send_complaint_assigned_email
 from apps.notifications.tasks import send_email_notification
 from utils.notification_service import send_real_time_notification
+from utils.sla_calculator import calculate_sla_deadline
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ComplaintListCreateView(generics.ListCreateAPIView):
     serializer_class = ComplaintListSerializer
@@ -27,22 +31,22 @@ class ComplaintListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         user = self.request.user
         if user.role == 'CUSTOMER':
-            return Complaint.objects.filter(customer=user)
+            return Complaint.objects.filter(customer=user).select_related('customer', 'assigned_to')
         elif user.role == 'AGENT':
-            return Complaint.objects.filter(assigned_to=user)
+            return Complaint.objects.filter(assigned_to=user).select_related('customer', 'assigned_to')
         elif user.role == 'ADMIN':
-            return Complaint.objects.all().order_by('-created_at')
+            return Complaint.objects.all().select_related('customer', 'assigned_to').order_by('-created_at')
         else:
-            return Complaint.objects.all()
+            return Complaint.objects.all().select_related('customer', 'assigned_to')
     
     def get_serializer_class(self):
         if self.request.method == 'POST':
-            return ComplaintListSerializer  # Use simple serializer for creation
+            return ComplaintSerializer
         return ComplaintListSerializer
     
     def create(self, request, *args, **kwargs):
-        """Override create to return simple response"""
-        serializer = ComplaintListSerializer(data=request.data, context={'context': {'request': request}})
+        """Override create to handle attachments and return simple response"""
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         complaint = self.perform_create(serializer)
         
@@ -56,41 +60,25 @@ class ComplaintListCreateView(generics.ListCreateAPIView):
         }, status=status.HTTP_201_CREATED)
     
     def perform_create(self, serializer):
-        """Simplified creation - only essential operations"""
-        # Set customer
+        """Standard creation with attachment handling and auto-assignment"""
+        # Save complaint (serializer.create handles customer and SLA)
         user = self.request.user
+        complaint = serializer.save()
         
-        # Get validated data
-        validated_data = serializer.validated_data.copy()
-        validated_data['customer'] = user
-        
-        # Set priority if customer
-        if user.role == 'CUSTOMER':
-            expected_days = validated_data.get('expected_resolution_days')
-            if expected_days:
-                if expected_days <= 1:
-                    validated_data['priority'] = 'CRITICAL'
-                elif expected_days <= 3:
-                    validated_data['priority'] = 'HIGH'
-                elif expected_days <= 7:
-                    validated_data['priority'] = 'MEDIUM'
-                else:
-                    validated_data['priority'] = 'LOW'
-            else:
-                validated_data['priority'] = 'MEDIUM'
-        
-        # Set SLA deadline
-        try:
-            validated_data['sla_deadline'] = calculate_sla_deadline(
-                validated_data.get('priority', 'MEDIUM'), 
-                validated_data.get('category', 'OTHER')
-            )
-        except Exception:
-            from datetime import timedelta
-            validated_data['sla_deadline'] = timezone.now() + timedelta(days=7)
-        
-        # Create complaint
-        complaint = Complaint.objects.create(**validated_data)
+        # Handle attachments
+        attachments = self.request.FILES.getlist('attachments')
+        for file in attachments:
+            try:
+                Attachment.objects.create(
+                    complaint=complaint,
+                    file=file,
+                    original_filename=file.name,
+                    file_size=file.size,
+                    mime_type=file.content_type,
+                    uploaded_by=user
+                )
+            except Exception as e:
+                logger.error(f"Failed to save attachment {file.name}: {e}")
         
         # Create timeline entry (non-blocking)
         try:
@@ -102,6 +90,31 @@ class ComplaintListCreateView(generics.ListCreateAPIView):
             )
         except Exception:
             pass
+            
+        # Trigger auto-assignment from the view's method
+        try:
+            if not complaint.assigned_to:
+                self.auto_assign_by_pincode(complaint)
+        except Exception as e:
+            logger.error(f"Auto-assignment failed: {e}")
+        
+        # Send Firebase notifications to all admins about new complaint
+        try:
+            from apps.notifications.firebase_service import send_notification_to_user
+            from apps.users.models import User
+            
+            admins = User.objects.filter(role='ADMIN', is_active=True)
+            for admin in admins:
+                send_notification_to_user(
+                    user_id=str(admin.id),
+                    title=f'New Complaint: {complaint.complaint_number}',
+                    message=f'{complaint.title} - {complaint.category} ({complaint.priority} priority)',
+                    notification_type='info',
+                    category='NEW_COMPLAINT',
+                    complaint=complaint
+                )
+        except Exception as e:
+            logger.error(f"Failed to send new complaint notifications: {e}")
         
         return complaint
     
@@ -272,7 +285,7 @@ class ComplaintListCreateView(generics.ListCreateAPIView):
         return False
 
 class ComplaintDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Complaint.objects.all()
+    queryset = Complaint.objects.select_related('customer', 'assigned_to').prefetch_related('attachments', 'comments', 'timeline')
     serializer_class = ComplaintSerializer
     permission_classes = [IsAuthenticated, IsComplaintOwnerOrAgent]
     
@@ -370,7 +383,51 @@ def close_complaint(request, pk):
             performed_by=request.user
         )
         
-        # Status change notification (controlled by env)
+        # Send Firebase notifications to all parties
+        try:
+            from apps.notifications.firebase_service import send_notification_to_user
+            
+            # Notify customer
+            if complaint.customer != request.user:
+                send_notification_to_user(
+                    user_id=str(complaint.customer.id),
+                    title=f'Complaint {complaint.complaint_number} Closed',
+                    message=f'Your complaint has been closed by {request.user.first_name or request.user.email}',
+                    notification_type='info',
+                    category='COMPLAINT_CLOSED',
+                    complaint=complaint
+                )
+            
+            # Notify assigned agent
+            if complaint.assigned_to and complaint.assigned_to != request.user:
+                send_notification_to_user(
+                    user_id=str(complaint.assigned_to.id),
+                    title=f'Complaint {complaint.complaint_number} Closed',
+                    message=f'Complaint closed by {request.user.first_name or request.user.email}',
+                    notification_type='info',
+                    category='COMPLAINT_CLOSED',
+                    complaint=complaint
+                )
+            
+            # Notify admins
+            if request.user.role != 'ADMIN':
+                from apps.users.models import User
+                admins = User.objects.filter(role='ADMIN', is_active=True)
+                for admin in admins:
+                    send_notification_to_user(
+                        user_id=str(admin.id),
+                        title=f'Complaint {complaint.complaint_number} Closed',
+                        message=f'Closed by {request.user.first_name or request.user.email}',
+                        notification_type='info',
+                        category='COMPLAINT_CLOSED',
+                        complaint=complaint
+                    )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send closure notifications: {e}")
+        
+        # Status change notification (controlled by env) - keeping for backward compatibility
         if getattr(settings, 'ENABLE_EMAIL_NOTIFICATIONS', False):
             try:
                 from apps.notifications.email_service import send_module_notification
@@ -384,6 +441,50 @@ def close_complaint(request, pk):
     except Complaint.DoesNotExist:
         return Response({'error': 'Complaint not found'}, status=status.HTTP_404_NOT_FOUND)
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_ai_recommendations(request, pk):
+    """Get AI-powered agent recommendations for a complaint"""
+    try:
+        complaint = Complaint.objects.get(pk=pk)
+        
+        if request.user.role not in ['ADMIN', 'AGENT']:
+            return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        
+        from utils.ai_assignment import AIAssignmentEngine
+        
+        ai_engine = AIAssignmentEngine()
+        recommendations = ai_engine.get_agent_recommendations(complaint)
+        
+        # Format recommendations for frontend
+        formatted_recommendations = []
+        for rec in recommendations:
+            agent = rec['agent']
+            formatted_recommendations.append({
+                'agent_id': str(agent.id),
+                'agent_name': f"{agent.first_name} {agent.last_name}",
+                'agent_email': agent.email,
+                'service_type': agent.service_type or 'General',
+                'confidence_score': round(rec['confidence_score'] * 100, 1),  # Convert to percentage
+                'reasoning': rec['reasoning'],
+                'current_workload': agent.current_active_cases or 0
+            })
+        
+        return Response({
+            'recommendations': formatted_recommendations,
+            'complaint_id': str(complaint.id),
+            'complaint_category': complaint.category
+        })
+        
+    except Complaint.DoesNotExist:
+        return Response({'error': 'Complaint not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to get AI recommendations: {e}")
+        return Response({'error': 'Failed to get recommendations'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def assign_complaint(request, pk):
@@ -396,72 +497,118 @@ def assign_complaint(request, pk):
         assigned_to_id = request.data.get('assigned_to')
         
         if not assigned_to_id:
-            # Unassign current agent
-            if complaint.assigned_to:
-                agent = complaint.assigned_to
-                agent.current_active_cases = max(0, agent.current_active_cases - 1)
-                agent.save()
+            # AI Auto-Assignment: Use AI engine to find best agent
+            try:
+                from utils.ai_assignment import AIAssignmentEngine
                 
-                complaint.assigned_to = None
-                complaint.status = 'OPEN'
-                complaint.save()
+                ai_engine = AIAssignmentEngine()
+                recommendations = ai_engine.get_agent_recommendations(complaint)
                 
+                if not recommendations:
+                    return Response({'error': 'No suitable agents found for auto-assignment'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Get the best recommendation
+                best_recommendation = recommendations[0]
+                assigned_user = best_recommendation['agent']
+                confidence = best_recommendation['confidence_score']
+                reasoning = best_recommendation['reasoning']
+                
+                # Create timeline entry for AI recommendation
                 Timeline.objects.create(
                     complaint=complaint,
-                    action='UNASSIGNED',
-                    description=f'Agent unassigned by admin',
-                    performed_by=request.user
+                    action='AI_AUTO_ASSIGNMENT',
+                    description=f'AI recommended {assigned_user.email} (Confidence: {confidence:.0%}) - {reasoning}',
+                    performed_by=request.user,
+                    metadata={
+                        'ai_confidence': confidence,
+                        'reasoning': reasoning
+                    }
                 )
-                return Response({'message': 'Agent unassigned successfully'})
-            return Response({'error': 'assigned_to is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        from apps.users.models import User
-        try:
-            assigned_user = User.objects.get(id=assigned_to_id, role='AGENT')
-        except User.DoesNotExist:
-            return Response({'error': 'Agent not found'}, status=status.HTTP_404_NOT_FOUND)
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"AI auto-assignment failed: {e}")
+                return Response({'error': 'AI auto-assignment failed. Please select an agent manually.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        else:
+            # Manual assignment
+            from apps.users.models import User
+            try:
+                assigned_user = User.objects.get(id=assigned_to_id, role='AGENT')
+            except User.DoesNotExist:
+                return Response({'error': 'Agent not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Update previous agent workload
+        # If complaint is already assigned, unassign first
         if complaint.assigned_to:
             old_agent = complaint.assigned_to
             old_agent.current_active_cases = max(0, old_agent.current_active_cases - 1)
-            old_agent.save(update_fields=['current_active_cases'])
-        
-        complaint.assigned_to = assigned_user
-        if complaint.status == 'OPEN':
-            complaint.status = 'IN_PROGRESS'
-        complaint.save()
-        
-        # Update new agent performance tracking
-        assigned_user.total_assigned_cases += 1
-        assigned_user.current_active_cases += 1
-        assigned_user.save(update_fields=['total_assigned_cases', 'current_active_cases'])
-        
-        # Send synchronous email notification to assigned agent for real-time confirmation
-        try:
-            send_complaint_assigned_email(complaint)
-        except Exception:
-            pass  # Skip if email fails
+            old_agent.save()
             
+            complaint.assigned_to = None
+            complaint.save()
+            
+            Timeline.objects.create(
+                complaint=complaint,
+                action='REASSIGNMENT',
+                description=f'Admin reassigning from {old_agent.email} to {assigned_user.email}',
+                performed_by=request.user
+            )
+        
+        # Create assignment request instead of direct assignment
+        from .models_assignment import AgentAssignmentRequest
+        from datetime import timedelta
+        
+        # Check if there's already a pending request for this agent
+        existing_request = AgentAssignmentRequest.objects.filter(
+            complaint=complaint,
+            agent=assigned_user,
+            status='PENDING',
+            expires_at__gt=timezone.now()
+        ).first()
+        
+        if existing_request:
+            # Cancel the existing request and create a new one
+            existing_request.status = 'CANCELLED'
+            existing_request.save()
+        
+        # Create new assignment request
+        assignment_request = AgentAssignmentRequest.objects.create(
+            complaint=complaint,
+            agent=assigned_user,
+            admin=request.user,
+            message=request.data.get('message', ''),
+            expires_at=timezone.now() + timedelta(hours=24)  # 24 hour expiry
+        )
+        
         Timeline.objects.create(
             complaint=complaint,
-            action='ASSIGNED',
-            description=f'Complaint assigned to {assigned_user.email}',
+            action='ASSIGNMENT_REQUESTED',
+            description=f'Admin {request.user.email} requested assignment to {assigned_user.email}',
             performed_by=request.user
         )
         
-        # Send real-time notification to assigned agent (disabled to prevent timeout)
-        # try:
-        #     send_real_time_notification(
-        #         str(assigned_user.id),
-        #         'New Assignment',
-        #         f'You have been assigned complaint #{complaint.complaint_number}: {complaint.title}',
-        #         'info'
-        #     )
-        # except Exception:
-        #     pass
+        # Send Firebase notification to agent
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            from apps.notifications.firebase_service import send_notification_to_user
+            send_notification_to_user(
+                user_id=str(assigned_user.id),
+                title='New Assignment Request',
+                message=f'Admin has requested you to handle complaint #{complaint.complaint_number}: {complaint.title}',
+                notification_type='info',
+                category='ASSIGNMENT_REQUEST',
+                complaint=complaint
+            )
+            logger.info(f"Firebase notification sent to agent {assigned_user.email}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send Firebase notification: {e}")
         
-        return Response({'message': 'Complaint assigned successfully'})
+        return Response({
+            'message': 'Assignment request sent to agent successfully',
+            'request_id': str(assignment_request.id)
+        })
         
     except Complaint.DoesNotExist:
         return Response({'error': 'Complaint not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -574,30 +721,45 @@ def request_agent_assignment(request, pk):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_assignment_requests(request):
-    if request.user.role != 'ADMIN':
-        return Response({'error': 'Only admins can view assignment requests'}, status=status.HTTP_403_FORBIDDEN)
-    
-    # 1. Requests FROM agents TO admin
-    agent_requests = AssignmentRequest.objects.filter(status='PENDING')
-    agent_serializer = AssignmentRequestSerializer(agent_requests, many=True)
-    
-    # 2. Requests FROM admin TO agents
     from .models_assignment import AgentAssignmentRequest
     from .serializers import AgentAssignmentRequestSerializer
-    # Only show if request is PENDING AND complaint is still OPEN and UNASSIGNED
-    admin_requests = AgentAssignmentRequest.objects.filter(
-        status='PENDING',
-        expires_at__gt=timezone.now(),
-        complaint__status='OPEN',
-        complaint__assigned_to__isnull=True
-    )
-    admin_serializer = AgentAssignmentRequestSerializer(admin_requests, many=True)
     
-    # Return both
-    return Response({
-        'incoming': agent_serializer.data, # Agent requesting ticket
-        'outgoing': admin_serializer.data  # Admin requesting agent
-    })
+    if request.user.role == 'ADMIN':
+        # 1. Requests FROM agents TO admin
+        agent_requests = AssignmentRequest.objects.filter(status='PENDING')
+        agent_serializer = AssignmentRequestSerializer(agent_requests, many=True)
+        
+        # 2. Requests FROM admin TO agents
+        # Only show if request is PENDING AND complaint is still OPEN and UNASSIGNED
+        admin_requests = AgentAssignmentRequest.objects.filter(
+            status='PENDING',
+            expires_at__gt=timezone.now(),
+            complaint__status='OPEN',
+            complaint__assigned_to__isnull=True
+        )
+        admin_serializer = AgentAssignmentRequestSerializer(admin_requests, many=True)
+        
+        # Return both
+        return Response({
+            'incoming': agent_serializer.data, # Agent requesting ticket
+            'outgoing': admin_serializer.data  # Admin requesting agent
+        })
+    
+    elif request.user.role == 'AGENT':
+        # Show assignment requests sent to this agent
+        agent_requests = AgentAssignmentRequest.objects.filter(
+            agent=request.user,
+            status='PENDING',
+            expires_at__gt=timezone.now()
+        ).select_related('complaint', 'admin')
+        
+        serializer = AgentAssignmentRequestSerializer(agent_requests, many=True)
+        return Response({
+            'assignment_requests': serializer.data
+        })
+    
+    else:
+        return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
 
 
 @api_view(['POST'])
@@ -717,6 +879,131 @@ def review_assignment_request(request, pk):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+def respond_to_agent_assignment(request, pk):
+    """Agent responds to admin's assignment request (accept/reject)"""
+    try:
+        from .models_assignment import AgentAssignmentRequest
+        
+        assignment_request = AgentAssignmentRequest.objects.select_related(
+            'complaint', 'agent', 'admin', 'complaint__customer'
+        ).get(pk=pk)
+        
+        # Only the assigned agent can respond
+        if request.user != assignment_request.agent:
+            return Response({'error': 'Only the assigned agent can respond to this request'}, status=status.HTTP_403_FORBIDDEN)
+        
+        if assignment_request.status != 'PENDING':
+            return Response({'error': f'Request already {assignment_request.status.lower()}'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if expired
+        if assignment_request.expires_at < timezone.now():
+            assignment_request.status = 'EXPIRED'
+            assignment_request.save()
+            return Response({'error': 'Assignment request has expired'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        action = request.data.get('action')  # 'accept' or 'reject'
+        agent_response = request.data.get('response', '')
+        
+        complaint = assignment_request.complaint
+        
+        if action == 'accept':
+            # Check if complaint is still available
+            if complaint.assigned_to:
+                return Response({'error': 'Complaint already assigned to another agent'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Assign the complaint
+            complaint.assigned_to = request.user
+            if complaint.status == 'OPEN':
+                complaint.status = 'IN_PROGRESS'
+            complaint.save()
+            
+            # Update agent workload
+            request.user.total_assigned_cases += 1
+            request.user.current_active_cases += 1
+            request.user.save(update_fields=['total_assigned_cases', 'current_active_cases'])
+            
+            # Update request status
+            assignment_request.status = 'ACCEPTED'
+            assignment_request.agent_response = agent_response
+            assignment_request.responded_at = timezone.now()
+            assignment_request.save()
+            
+            Timeline.objects.create(
+                complaint=complaint,
+                action='ASSIGNED',
+                description=f'Agent {request.user.email} accepted assignment request',
+                performed_by=request.user
+            )
+            
+            # Send Firebase notification to admin
+            try:
+                from apps.notifications.firebase_service import send_notification_to_user
+                send_notification_to_user(
+                    user_id=str(assignment_request.admin.id),
+                    title='Assignment Request Accepted',
+                    message=f'Agent {request.user.first_name} {request.user.last_name} accepted complaint #{complaint.complaint_number}',
+                    notification_type='success',
+                    category='ASSIGNMENT_ACCEPTED',
+                    complaint=complaint
+                )
+            except Exception as e:
+                logger.error(f"Failed to send notification to admin: {e}")
+            
+            # Send Firebase notification to customer
+            try:
+                from apps.notifications.firebase_service import send_notification_to_user
+                send_notification_to_user(
+                    user_id=str(complaint.customer.id),
+                    title='Agent Assigned to Your Complaint',
+                    message=f'Agent {request.user.first_name} {request.user.last_name} has been assigned to your complaint #{complaint.complaint_number}',
+                    notification_type='info',
+                    category='COMPLAINT_STATUS_CHANGED',
+                    complaint=complaint
+                )
+            except Exception as e:
+                logger.error(f"Failed to send notification to customer: {e}")
+            
+            return Response({'message': 'Assignment request accepted successfully'})
+        
+        elif action == 'reject':
+            # Update request status
+            assignment_request.status = 'REJECTED'
+            assignment_request.agent_response = agent_response or 'Agent is currently busy'
+            assignment_request.responded_at = timezone.now()
+            assignment_request.save()
+            
+            Timeline.objects.create(
+                complaint=complaint,
+                action='ASSIGNMENT_REJECTED',
+                description=f'Agent {request.user.email} rejected assignment request: {agent_response}',
+                performed_by=request.user
+            )
+            
+            # Send Firebase notification to admin
+            try:
+                from apps.notifications.firebase_service import send_notification_to_user
+                send_notification_to_user(
+                    user_id=str(assignment_request.admin.id),
+                    title='Assignment Request Rejected',
+                    message=f'Agent {request.user.first_name} {request.user.last_name} rejected complaint #{complaint.complaint_number}. Reason: {agent_response or "Not specified"}',
+                    notification_type='warning',
+                    category='ASSIGNMENT_REJECTED',
+                    complaint=complaint
+                )
+            except Exception as e:
+                logger.error(f"Failed to send notification to admin: {e}")
+            
+            return Response({'message': 'Assignment request rejected'})
+        
+        else:
+            return Response({'error': 'Invalid action. Use "accept" or "reject"'}, status=status.HTTP_400_BAD_REQUEST)
+        
+    except AgentAssignmentRequest.DoesNotExist:
+        return Response({'error': 'Assignment request not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
 def resolve_complaint(request, pk):
     try:
         complaint = Complaint.objects.get(pk=pk)
@@ -752,10 +1039,17 @@ def resolve_complaint(request, pk):
                     )
             agent.save(update_fields=['total_resolved_cases', 'current_active_cases', 'average_resolution_time_hours'])
         
-        # Handle resolution attachments (proof of work)
+        # Handle resolution attachments (proof of work) with 10MB size limit
         files = request.FILES.getlist('resolution_files')
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
+        
         for file in files:
             try:
+                # Validate file size
+                if file.size > MAX_FILE_SIZE:
+                    logger.warning(f"File {file.name} exceeds 10MB limit ({file.size} bytes)")
+                    continue
+                
                 Attachment.objects.create(
                     complaint=complaint,
                     file=file,
@@ -777,19 +1071,49 @@ def resolve_complaint(request, pk):
             performed_by=request.user
         )
         
-        # Send real-time notification to admin users (disabled to prevent timeout)
-        # try:
-        #     from apps.users.models import User
-        #     admin_users = User.objects.filter(role='ADMIN', is_active=True)
-        #     for admin in admin_users:
-        #         send_real_time_notification(
-        #             str(admin.id),
-        #             'Complaint Resolved',
-        #             f'Complaint #{complaint.complaint_number} has been resolved by {request.user.first_name} {request.user.last_name}',
-        #             'success'
-        #         )
-        # except Exception:
-        #     pass
+        # Send Firebase notifications to all parties
+        try:
+            from apps.notifications.firebase_service import send_notification_to_user
+            
+            # Notify customer
+            if complaint.customer != request.user:
+                send_notification_to_user(
+                    user_id=str(complaint.customer.id),
+                    title=f'Complaint {complaint.complaint_number} Resolved',
+                    message=f'Your complaint has been resolved by {request.user.first_name or request.user.email}',
+                    notification_type='success',
+                    category='COMPLAINT_RESOLVED',
+                    complaint=complaint
+                )
+            
+            # Notify assigned agent if different from resolver
+            if complaint.assigned_to and complaint.assigned_to != request.user:
+                send_notification_to_user(
+                    user_id=str(complaint.assigned_to.id),
+                    title=f'Complaint {complaint.complaint_number} Resolved',
+                    message=f'Complaint resolved by {request.user.first_name or request.user.email}',
+                    notification_type='success',
+                    category='COMPLAINT_RESOLVED',
+                    complaint=complaint
+                )
+            
+            # Notify admins
+            if request.user.role != 'ADMIN':
+                from apps.users.models import User
+                admins = User.objects.filter(role='ADMIN', is_active=True)
+                for admin in admins:
+                    send_notification_to_user(
+                        user_id=str(admin.id),
+                        title=f'Complaint {complaint.complaint_number} Resolved',
+                        message=f'Resolved by {request.user.first_name or request.user.email}',
+                        notification_type='success',
+                        category='COMPLAINT_RESOLVED',
+                        complaint=complaint
+                    )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send resolution notifications: {e}")
         
         return Response({'message': 'Complaint resolved successfully'})
         
@@ -824,6 +1148,49 @@ def add_comment(request, pk):
             description=f'Comment added by {request.user.email}',
             performed_by=request.user
         )
+        
+        # Send Firebase notifications to relevant parties
+        try:
+            from apps.notifications.firebase_service import send_notification_to_user
+            
+            # Notify customer if comment is from agent/admin
+            if request.user.role in ['AGENT', 'ADMIN'] and complaint.customer != request.user:
+                send_notification_to_user(
+                    user_id=str(complaint.customer.id),
+                    title=f'New Message on {complaint.complaint_number}',
+                    message=f'{request.user.first_name or request.user.email} replied to your complaint',
+                    notification_type='info',
+                    category='COMMENT_ADDED',
+                    complaint=complaint
+                )
+            
+            # Notify assigned agent if comment is from customer/admin
+            if complaint.assigned_to and complaint.assigned_to != request.user:
+                send_notification_to_user(
+                    user_id=str(complaint.assigned_to.id),
+                    title=f'New Message on {complaint.complaint_number}',
+                    message=f'{request.user.first_name or request.user.email} added a comment',
+                    notification_type='info',
+                    category='COMMENT_ADDED',
+                    complaint=complaint
+                )
+            
+            # Notify admin if comment is from customer/agent (for non-internal comments)
+            if not is_internal and request.user.role != 'ADMIN':
+                from apps.users.models import User
+                admins = User.objects.filter(role='ADMIN', is_active=True)
+                for admin in admins:
+                    if admin != request.user:
+                        send_notification_to_user(
+                            user_id=str(admin.id),
+                            title=f'New Comment on {complaint.complaint_number}',
+                            message=f'{request.user.first_name or request.user.email} commented on complaint',
+                            notification_type='info',
+                            category='COMMENT_ADDED',
+                            complaint=complaint
+                        )
+        except Exception as e:
+            logger.error(f"Failed to send comment notifications: {e}")
         
         serializer = CommentSerializer(comment)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -887,6 +1254,38 @@ def add_feedback(request, pk):
                 performed_by=request.user
             )
             
+            # Send Firebase notifications to agent and admins
+            try:
+                from apps.notifications.firebase_service import send_notification_to_user
+                from apps.users.models import User
+                
+                # Notify assigned agent about feedback
+                if complaint.assigned_to:
+                    send_notification_to_user(
+                        user_id=str(complaint.assigned_to.id),
+                        title=f'New Feedback on {complaint.complaint_number}',
+                        message=f'Customer rated {feedback.rating}/5 stars for your resolution',
+                        notification_type='success' if feedback.rating >= 4 else 'warning',
+                        category='FEEDBACK_RECEIVED',
+                        complaint=complaint
+                    )
+                
+                # Notify all admins about feedback
+                admins = User.objects.filter(role='ADMIN', is_active=True)
+                for admin in admins:
+                    send_notification_to_user(
+                        user_id=str(admin.id),
+                        title=f'Feedback Received on {complaint.complaint_number}',
+                        message=f'Customer gave {feedback.rating}/5 stars',
+                        notification_type='info',
+                        category='FEEDBACK_RECEIVED',
+                        complaint=complaint
+                    )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send feedback notifications: {e}")
+            
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
@@ -945,13 +1344,53 @@ def reopen_complaint(request, pk):
             metadata={'reason': reason}
         )
         
-        # Send notification
+        
+        # Send notifications
         try:
             send_status_changed_email(complaint, 'RESOLVED')
+            
+            # Also send Firebase notifications
+            from apps.notifications.firebase_service import send_notification_to_user
+            from apps.users.models import User
+            
+            # Notify customer (if not the one who reopened)
+            if complaint.customer != request.user:
+                send_notification_to_user(
+                    user_id=str(complaint.customer.id),
+                    title=f'Complaint {complaint.complaint_number} Reopened',
+                    message=f'Your complaint has been reopened and will be reviewed again',
+                    notification_type='info',
+                    category='COMPLAINT_REOPENED',
+                    complaint=complaint
+                )
+            
+            # Notify assigned agent
+            if complaint.assigned_to:
+                send_notification_to_user(
+                    user_id=str(complaint.assigned_to.id),
+                    title=f'Complaint {complaint.complaint_number} Reopened',
+                    message=f'A resolved complaint has been reopened. Please review.',
+                    notification_type='warning',
+                    category='COMPLAINT_REOPENED',
+                    complaint=complaint
+                )
+            
+            # Notify all admins
+            admins = User.objects.filter(role='ADMIN', is_active=True)
+            for admin in admins:
+                if admin != request.user:
+                    send_notification_to_user(
+                        user_id=str(admin.id),
+                        title=f'Complaint {complaint.complaint_number} Reopened',
+                        message=f'Reopened by {request.user.first_name or request.user.email}',
+                        notification_type='warning',
+                        category='COMPLAINT_REOPENED',
+                        complaint=complaint
+                    )
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to send status change email: {e}")
+            logger.error(f"Failed to send reopen notifications: {e}")
         
         return Response({
             'message': 'Complaint reopened successfully',

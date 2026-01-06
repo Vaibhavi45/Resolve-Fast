@@ -7,7 +7,7 @@ export const authService = {
     confirm_password: string;
     first_name: string;
     last_name: string;
-    phone: string;
+    phone?: string;
     role: string;
     pincode?: string;
     service_type?: string;

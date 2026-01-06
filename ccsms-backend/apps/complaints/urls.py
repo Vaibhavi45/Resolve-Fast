@@ -5,6 +5,7 @@ from . import invoice_views
 urlpatterns = [
     path('', views.ComplaintListCreateView.as_view(), name='complaint_list_create'),
     path('<uuid:pk>/', views.ComplaintDetailView.as_view(), name='complaint_detail'),
+    path('<uuid:pk>/ai-recommendations/', views.get_ai_recommendations, name='get_ai_recommendations'),
     path('<uuid:pk>/assign/', views.assign_complaint, name='assign_complaint'),
     path('<uuid:pk>/request-assignment/', views.request_assignment, name='request_assignment'),
     path('<uuid:pk>/request-agent-assignment/', views.request_agent_assignment, name='request_agent_assignment'),
@@ -17,6 +18,7 @@ urlpatterns = [
     path('assignment-requests/', views.list_assignment_requests, name='list_assignment_requests'),
     path('assignment-requests/<uuid:pk>/review/', views.review_assignment_request, name='review_assignment_request'),
     path('assignment-requests/<uuid:pk>/respond/', views.review_assignment_request, name='respond_assignment_request'),
+    path('agent-assignment-requests/<uuid:pk>/respond/', views.respond_to_agent_assignment, name='respond_agent_assignment'),
     path('templates/', views.list_complaint_templates, name='list_complaint_templates'),
     path('templates/<uuid:pk>/', views.get_complaint_template, name='get_complaint_template'),
     path('from-template/', views.create_from_template, name='create_from_template'),

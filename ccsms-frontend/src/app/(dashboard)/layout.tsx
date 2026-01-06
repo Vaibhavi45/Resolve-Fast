@@ -8,6 +8,7 @@ import { Moon, Sun } from 'lucide-react';
 import NotificationToast from '@/components/NotificationToast';
 import Sidebar from '@/components/Sidebar';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
+import FCMInitializer from '@/components/FCMInitializer';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -106,6 +107,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </div>
       </main>
+      <FCMInitializer />
       <NotificationToast />
     </div>
   );
