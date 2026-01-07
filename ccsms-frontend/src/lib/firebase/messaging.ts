@@ -1,5 +1,5 @@
-import { getToken, onMessage, deleteToken } from 'firebase/messaging';
-import { messaging } from './config';
+import { getToken, onMessage, deleteToken, isSupported } from 'firebase/messaging';
+import { getMessagingInstance } from './config';
 import api from '../api/axios';
 
 // VAPID key from Firebase Console (Cloud Messaging → Web Push certificates)
@@ -20,9 +20,12 @@ const isValidVapidKey = (key: string): boolean => {
  * Request notification permission and get FCM token
  */
 export async function requestNotificationPermission(): Promise<string | null> {
+    if (typeof window === 'undefined') return null;
+
     try {
+        const messaging = await getMessagingInstance();
         if (!messaging) {
-            console.warn('Firebase messaging not supported');
+            console.warn('Firebase messaging not supported or failed to initialize');
             return null;
         }
 
@@ -126,6 +129,7 @@ export async function unregisterFCMToken(token: string): Promise<boolean> {
             data: { token }
         });
 
+        const messaging = await getMessagingInstance();
         if (messaging) {
             await deleteToken(messaging);
         }
@@ -142,48 +146,67 @@ export async function unregisterFCMToken(token: string): Promise<boolean> {
  * Listen for foreground messages and show desktop notifications
  */
 export function onForegroundMessage(callback: (payload: any) => void) {
-    if (!messaging) {
-        console.warn('Firebase messaging not supported');
-        return () => { };
-    }
+    if (typeof window === 'undefined') return () => { };
 
-    return onMessage(messaging, (payload) => {
-        console.log('Foreground message received:', payload);
-        callback(payload);
+    let unsubscribe = () => { };
 
-        // Always show desktop notification for foreground messages
-        if (payload.notification) {
-            const notificationTitle = payload.notification.title || 'New Notification';
-            const notificationOptions: NotificationOptions = {
-                body: payload.notification.body || '',
-                icon: '/favicon.ico',
-                badge: '/favicon.ico',
-                data: payload.data,
-                tag: payload.data?.type || 'notification',
-                requireInteraction: false // Auto-dismiss after a few seconds
-            };
-
-            // Check if we have permission
-            if (Notification.permission === 'granted') {
-                const notification = new Notification(notificationTitle, notificationOptions);
-
-                // Handle notification click
-                notification.onclick = (event) => {
-                    event.preventDefault();
-                    window.focus();
-
-                    // Navigate to complaint if complaint_id is present
-                    if (payload.data?.complaint_id) {
-                        window.location.href = `/complaints/${payload.data.complaint_id}`;
-                    }
-
-                    notification.close();
-                };
-            } else {
-                console.warn('Notification permission not granted. Current permission:', Notification.permission);
-            }
+    getMessagingInstance().then(messaging => {
+        if (!messaging) {
+            console.warn('[FCM] Firebase messaging not supported');
+            return;
         }
+
+        console.log('[FCM] Listening for foreground messages');
+        const unsub = onMessage(messaging, (payload) => {
+            console.log('[FCM] Foreground message received:', payload);
+
+            // Always trigger callback for UI updates
+            callback(payload);
+
+            // Manually trigger browser notification for Windows desktop pop-up
+            if (payload.notification) {
+                const { title, body, icon } = payload.notification;
+
+                // Check if we have permission
+                if (Notification.permission === 'granted') {
+                    try {
+                        const notification = new Notification(title || 'New Notification', {
+                            body: body || '',
+                            icon: icon || '/favicon.ico',
+                            badge: '/favicon.ico',
+                            tag: payload.data?.type || 'notification',
+                            requireInteraction: false // Auto-dismiss after a few seconds
+                        });
+
+                        // Handle notification click
+                        notification.onclick = (event) => {
+                            event.preventDefault();
+                            window.focus();
+
+                            // Navigate to complaint if complaint_id is present
+                            if (payload.data?.complaint_id) {
+                                window.location.href = `/complaints/${payload.data.complaint_id}`;
+                            }
+
+                            notification.close();
+                        };
+                    } catch (err) {
+                        console.error('[FCM] Error showing browser notification:', err);
+                    }
+                } else {
+                    console.warn('[FCM] Notification permission not granted:', Notification.permission);
+                }
+            }
+        });
+
+        unsubscribe = unsub;
+    }).catch(err => {
+        console.error('[FCM] Error setting up foreground listener:', err);
     });
+
+    return () => {
+        if (unsubscribe) unsubscribe();
+    };
 }
 
 /**

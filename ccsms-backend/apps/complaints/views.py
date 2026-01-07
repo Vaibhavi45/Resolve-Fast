@@ -91,13 +91,6 @@ class ComplaintListCreateView(generics.ListCreateAPIView):
         except Exception:
             pass
             
-        # Trigger auto-assignment from the view's method
-        try:
-            if not complaint.assigned_to:
-                self.auto_assign_by_pincode(complaint)
-        except Exception as e:
-            logger.error(f"Auto-assignment failed: {e}")
-        
         # Send Firebase notifications to all admins about new complaint
         try:
             from apps.notifications.firebase_service import send_notification_to_user
@@ -495,6 +488,52 @@ def assign_complaint(request, pk):
             return Response({'error': 'Only admins can assign complaints'}, status=status.HTTP_403_FORBIDDEN)
         
         assigned_to_id = request.data.get('assigned_to')
+
+        # Handle explicit unassignment
+        if assigned_to_id == 'unassign':
+            if not complaint.assigned_to:
+                return Response({'error': 'Complaint is not assigned to any agent'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            old_agent = complaint.assigned_to
+            
+            # Reset complaint
+            complaint.assigned_to = None
+            complaint.status = 'OPEN'
+            complaint.save()
+
+            # Update agent workload
+            old_agent.current_active_cases = max(0, (old_agent.current_active_cases or 1) - 1)
+            old_agent.save()
+
+            # Cancel any existing pending requests for this complaint
+            from .models_assignment import AgentAssignmentRequest
+            AgentAssignmentRequest.objects.filter(
+                complaint=complaint,
+                status='PENDING'
+            ).update(status='CANCELLED')
+
+            Timeline.objects.create(
+                complaint=complaint,
+                action='UNASSIGNED',
+                description=f'Agent {old_agent.email} unassigned by admin. Status reset to OPEN.',
+                performed_by=request.user
+            )
+
+            # Notify the agent
+            try:
+                from apps.notifications.firebase_service import send_notification_to_user
+                send_notification_to_user(
+                    user_id=str(old_agent.id),
+                    title='Assignment Changed',
+                    message=f'You have been unassigned from Complaint #{complaint.complaint_number}: {complaint.title}',
+                    notification_type='info',
+                    category='ASSIGNMENT_CHANGED',
+                    complaint=complaint
+                )
+            except Exception:
+                pass
+
+            return Response({'message': 'Agent unassigned successfully'})
         
         if not assigned_to_id:
             # AI Auto-Assignment: Use AI engine to find best agent
@@ -507,40 +546,70 @@ def assign_complaint(request, pk):
                 if not recommendations:
                     return Response({'error': 'No suitable agents found for auto-assignment'}, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Get the best recommendation
+                # Get the best recommendation and assign directly
                 best_recommendation = recommendations[0]
                 assigned_user = best_recommendation['agent']
                 confidence = best_recommendation['confidence_score']
                 reasoning = best_recommendation['reasoning']
                 
-                # Create timeline entry for AI recommendation
+                # Direct assignment
+                complaint.assigned_to = assigned_user
+                complaint.status = 'IN_PROGRESS'
+                complaint.save()
+                
+                # Update agent workload
+                assigned_user.current_active_cases = (assigned_user.current_active_cases or 0) + 1
+                assigned_user.save()
+                
                 Timeline.objects.create(
                     complaint=complaint,
-                    action='AI_AUTO_ASSIGNMENT',
-                    description=f'AI recommended {assigned_user.email} (Confidence: {confidence:.0%}) - {reasoning}',
+                    action='AUTO_ASSIGNED',
+                    description=f'Auto-assigned to {assigned_user.email} (Confidence: {confidence:.0%}) - {reasoning}',
                     performed_by=request.user,
                     metadata={
                         'ai_confidence': confidence,
                         'reasoning': reasoning
                     }
                 )
+                
+                # Send Firebase notification about direct assignment
+                try:
+                    from apps.notifications.firebase_service import send_notification_to_user
+                    send_notification_to_user(
+                        user_id=str(assigned_user.id),
+                        title='New Direct Assignment',
+                        message=f'Complaint #{complaint.complaint_number} has been auto-assigned to you: {complaint.title}',
+                        notification_type='high',
+                        category='ASSIGNMENT_DIRECT',
+                        complaint=complaint
+                    )
+                except Exception:
+                    pass
+                
+                return Response({
+                    'message': f'Successfully auto-assigned to {assigned_user.first_name} {assigned_user.last_name}',
+                    'agent_name': f"{assigned_user.first_name} {assigned_user.last_name}",
+                    'confidence_score': round(confidence * 100, 1)
+                })
+                
             except Exception as e:
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.error(f"AI auto-assignment failed: {e}")
-                return Response({'error': 'AI auto-assignment failed. Please select an agent manually.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        else:
-            # Manual assignment
-            from apps.users.models import User
-            try:
-                assigned_user = User.objects.get(id=assigned_to_id, role='AGENT')
-            except User.DoesNotExist:
-                return Response({'error': 'Agent not found'}, status=status.HTTP_404_NOT_FOUND)
+                logger.error(f"Auto-assignment failed: {e}")
+                return Response({'error': 'Auto-assignment failed. Please select an agent manually.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Manual assignment (logic below remains request-based or becomes direct based on preference)
+        # Assuming manual assignment still creates a request for agent to accept
+        from apps.users.models import User
+        try:
+            assigned_user = User.objects.get(id=assigned_to_id, role='AGENT')
+        except User.DoesNotExist:
+            return Response({'error': 'Agent not found'}, status=status.HTTP_404_NOT_FOUND)
         
         # If complaint is already assigned, unassign first
         if complaint.assigned_to:
             old_agent = complaint.assigned_to
-            old_agent.current_active_cases = max(0, old_agent.current_active_cases - 1)
+            old_agent.current_active_cases = max(0, (old_agent.current_active_cases or 1) - 1)
             old_agent.save()
             
             complaint.assigned_to = None
@@ -548,27 +617,20 @@ def assign_complaint(request, pk):
             
             Timeline.objects.create(
                 complaint=complaint,
-                action='REASSIGNMENT',
-                description=f'Admin reassigning from {old_agent.email} to {assigned_user.email}',
+                action='REASSIGNMENT_INITIATED',
+                description=f'Admin initiating reassignment from {old_agent.email} to {assigned_user.email}',
                 performed_by=request.user
             )
         
-        # Create assignment request instead of direct assignment
+        # Create assignment request for manual selection
         from .models_assignment import AgentAssignmentRequest
         from datetime import timedelta
         
-        # Check if there's already a pending request for this agent
-        existing_request = AgentAssignmentRequest.objects.filter(
+        # Cancel any existing pending requests for this complaint
+        AgentAssignmentRequest.objects.filter(
             complaint=complaint,
-            agent=assigned_user,
-            status='PENDING',
-            expires_at__gt=timezone.now()
-        ).first()
-        
-        if existing_request:
-            # Cancel the existing request and create a new one
-            existing_request.status = 'CANCELLED'
-            existing_request.save()
+            status='PENDING'
+        ).update(status='CANCELLED')
         
         # Create new assignment request
         assignment_request = AgentAssignmentRequest.objects.create(
@@ -576,37 +638,32 @@ def assign_complaint(request, pk):
             agent=assigned_user,
             admin=request.user,
             message=request.data.get('message', ''),
-            expires_at=timezone.now() + timedelta(hours=24)  # 24 hour expiry
+            expires_at=timezone.now() + timedelta(hours=24)
         )
         
         Timeline.objects.create(
             complaint=complaint,
             action='ASSIGNMENT_REQUESTED',
-            description=f'Admin {request.user.email} requested assignment to {assigned_user.email}',
+            description=f'Admin requested assignment to {assigned_user.email}',
             performed_by=request.user
         )
         
-        # Send Firebase notification to agent
+        # Send Firebase notification
         try:
-            import logging
-            logger = logging.getLogger(__name__)
             from apps.notifications.firebase_service import send_notification_to_user
             send_notification_to_user(
                 user_id=str(assigned_user.id),
                 title='New Assignment Request',
-                message=f'Admin has requested you to handle complaint #{complaint.complaint_number}: {complaint.title}',
+                message=f'Requested to handle complaint #{complaint.complaint_number}',
                 notification_type='info',
                 category='ASSIGNMENT_REQUEST',
                 complaint=complaint
             )
-            logger.info(f"Firebase notification sent to agent {assigned_user.email}")
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to send Firebase notification: {e}")
-        
+        except Exception:
+            pass
+            
         return Response({
-            'message': 'Assignment request sent to agent successfully',
+            'message': f'Assignment request sent to {assigned_user.first_name} {assigned_user.last_name} successfully',
             'request_id': str(assignment_request.id)
         })
         

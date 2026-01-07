@@ -120,14 +120,22 @@ export default function DashboardPage() {
 
           {volumeData && volumeData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={volumeData.slice(-7).map((item: any) => ({
-                name: item.day,
-                value: item.count,
-                date: item.date
-              }))}>
+              <LineChart
+                data={volumeData.slice(-7).map((item: any) => ({
+                  name: item.day,
+                  value: item.count,
+                  date: item.date
+                }))}
+                margin={{ top: 10, right: 30, left: -10, bottom: 20 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" stroke="#999" />
-                <YAxis stroke="#999" />
+                <YAxis
+                  stroke="#999"
+                  domain={[0, 10]}
+                  ticks={[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}
+                  allowDecimals={false}
+                />
                 <Tooltip labelFormatter={(label, payload) => {
                   const data = payload?.[0]?.payload;
                   return data ? `${label} (${data.date})` : label;
@@ -413,22 +421,20 @@ export default function DashboardPage() {
                         <p className="text-sm font-semibold text-[#1da9c3]">{complaint.complaint_number}</p>
                         <p className="text-base font-semibold text-gray-900 dark:text-white mt-1">{complaint.title}</p>
                       </div>
-                      <span className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${
-                        complaint.status === 'OPEN' ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200' :
+                      <span className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${complaint.status === 'OPEN' ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200' :
                         complaint.status === 'IN_PROGRESS' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200' :
-                        complaint.status === 'RESOLVED' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' :
-                        'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
-                      }`}>
+                          complaint.status === 'RESOLVED' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' :
+                            'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
+                        }`}>
                         {complaint.status.replace('_', ' ')}
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                       <span className="flex items-center gap-1">
-                        <span className={`w-2 h-2 rounded-full ${
-                          complaint.priority === 'CRITICAL' ? 'bg-red-500' :
+                        <span className={`w-2 h-2 rounded-full ${complaint.priority === 'CRITICAL' ? 'bg-red-500' :
                           complaint.priority === 'HIGH' ? 'bg-orange-500' :
-                          complaint.priority === 'MEDIUM' ? 'bg-yellow-500' : 'bg-blue-500'
-                        }`}></span>
+                            complaint.priority === 'MEDIUM' ? 'bg-yellow-500' : 'bg-blue-500'
+                          }`}></span>
                         {complaint.priority}
                       </span>
                       <span>•</span>

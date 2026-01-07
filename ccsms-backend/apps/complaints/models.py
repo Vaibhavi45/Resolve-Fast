@@ -3,6 +3,7 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from datetime import datetime, timedelta
+from utils.validators import validate_file_size
 
 # Import assignment models
 from .models_assignment import AgentAssignmentRequest
@@ -10,11 +11,8 @@ from .models_assignment import AgentAssignmentRequest
 class Complaint(models.Model):
     CATEGORY_CHOICES = [
         ('TECHNICAL', 'Technical'),
-        ('BILLING', 'Billing'),
         ('PRODUCT_QUALITY', 'Product Quality'),
-        ('DELIVERY', 'Delivery'),
         ('SERVICE', 'Service'),
-        ('OTHER', 'Other'),
     ]
     
     PRIORITY_CHOICES = [
@@ -98,7 +96,7 @@ class Attachment(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     complaint = models.ForeignKey(Complaint, on_delete=models.CASCADE, related_name='attachments')
-    file = models.FileField(upload_to='attachments/%Y/%m/%d/')
+    file = models.FileField(upload_to='attachments/%Y/%m/%d/', validators=[validate_file_size])
     original_filename = models.CharField(max_length=255)
     file_size = models.IntegerField()
     mime_type = models.CharField(max_length=100)

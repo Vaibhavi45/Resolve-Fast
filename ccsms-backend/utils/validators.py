@@ -3,9 +3,9 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 
 def validate_file_size(file):
-    max_size = 10 * 1024 * 1024  # 10MB
+    max_size = 500 * 1024  # 500KB
     if file.size > max_size:
-        raise ValidationError(f'File size cannot exceed 10MB. Current size: {file.size / (1024*1024):.2f}MB')
+        raise ValidationError(f'File size cannot exceed 500KB. Current size: {file.size / 1024:.2f}KB')
 
 def validate_file_type(file):
     allowed_types = [

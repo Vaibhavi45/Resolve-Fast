@@ -19,7 +19,15 @@ export default function NewComplaintPage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setFiles(Array.from(e.target.files));
+      const selectedFiles = Array.from(e.target.files);
+      const oversizedFiles = selectedFiles.filter(file => file.size > 500 * 1024);
+
+      if (oversizedFiles.length > 0) {
+        alert(`Some files exceed the 500KB limit: ${oversizedFiles.map(f => f.name).join(', ')}`);
+        return;
+      }
+
+      setFiles(selectedFiles);
     }
   };
 
@@ -113,10 +121,7 @@ export default function NewComplaintPage() {
             {[
               { value: 'PRODUCT_QUALITY', label: 'Product Issue', color: 'bg-[#1da9c3] text-white' },
               { value: 'TECHNICAL', label: 'Technical', color: 'bg-[#1da9c3] text-white' },
-              { value: 'SERVICE', label: 'Service', color: 'bg-purple-500 text-white' },
-              { value: 'BILLING', label: 'Billing', color: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300' },
-              { value: 'DELIVERY', label: 'Delivery', color: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300' },
-              { value: 'OTHER', label: 'Other', color: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300' },
+              { value: 'SERVICE', label: 'Service', color: 'bg-[#1da9c3] text-white' },
             ].map((cat) => (
               <label key={cat.value} className="cursor-pointer">
                 <input
@@ -349,7 +354,7 @@ export default function NewComplaintPage() {
             )}
           </div>
 
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Max file size 10MB. Formats: JPG, PNG, PDF</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Max file size 500KB. Formats: JPG, PNG, PDF</p>
         </div>
 
         <button

@@ -77,8 +77,8 @@ export default function AnalyticsPage() {
 
       {/* Filter & Export Bar */}
       <div className="flex items-center gap-3">
-        <select 
-          value={dateRange} 
+        <select
+          value={dateRange}
           onChange={(e) => setDateRange(e.target.value)}
           className="px-4 py-2 border dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#1da9c3] transition-all"
         >
@@ -86,8 +86,8 @@ export default function AnalyticsPage() {
           <option value="30">Last 30 days</option>
           <option value="90">Last 90 days</option>
         </select>
-        <button 
-          onClick={handleExportReport} 
+        <button
+          onClick={handleExportReport}
           className="px-4 py-2 bg-[#1da9c3] text-white rounded-lg hover:bg-[#178a9f] flex items-center gap-2 transition-colors"
         >
           <Download size={18} />
@@ -107,7 +107,7 @@ export default function AnalyticsPage() {
             <BarChart3 size={32} className="text-blue-500 opacity-80" />
           </div>
         </div>
-        
+
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border-orange-500">
           <div className="flex items-center justify-between">
             <div>
@@ -118,7 +118,7 @@ export default function AnalyticsPage() {
             <TrendingUp size={32} className="text-orange-500 opacity-80" />
           </div>
         </div>
-        
+
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border-green-500">
           <div className="flex items-center justify-between">
             <div>
@@ -160,29 +160,25 @@ export default function AnalyticsPage() {
               <div className="h-full flex flex-col">
                 {/* Y-axis labels */}
                 <div className="flex-1 flex">
-                  <div className="w-8 flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400 pr-2">
-                    {[...Array(5)].map((_, i) => {
-                      const maxCount = Math.max(...complaintsVolume.slice(-7).map((d: any) => d.count || 0), 1);
-                      const value = Math.round(maxCount * (4 - i) / 4);
-                      return <div key={i}>{value}</div>;
-                    })}
+                  <div className="w-8 flex flex-col justify-between text-[10px] text-gray-500 dark:text-gray-400 pr-2 pb-2">
+                    {[10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((val) => (
+                      <div key={val}>{val}</div>
+                    ))}
                   </div>
                   {/* Chart bars */}
                   <div className="flex-1 flex items-end justify-between gap-2 border-l border-b dark:border-gray-700 pl-2 pb-2">
                     {complaintsVolume.slice(-7).map((item: any, idx: number) => {
-                      const maxCount = Math.max(...complaintsVolume.slice(-7).map((d: any) => d.count || 0), 1);
+                      const maxCount = 10;
                       const height = ((item.count || 0) / maxCount) * 100;
-                      const date = new Date(item.date);
-                      const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short' });
-                      
+
                       return (
                         <div key={idx} className="flex-1 flex flex-col items-center group h-full justify-end">
-                          <div 
-                            className="bg-gradient-to-t from-[#1da9c3] to-[#1dc3e3] w-full rounded-t transition-all hover:from-[#178a9f] hover:to-[#1da9c3] cursor-pointer relative flex items-center justify-center"
-                            style={{ height: `${Math.max(height, 8)}%` }}
+                          <div
+                            className="bg-gradient-to-t from-[#1da9c3] to-[#1dc3e3] w-full rounded-t transition-all hover:from-[#178a9f] hover:to-[#1da9c3] cursor-pointer relative flex items-center justify-center min-h-[4px]"
+                            style={{ height: `${Math.min(height, 100)}%` }}
                           >
-                            <span className="text-white font-semibold text-xs">{item.count}</span>
-                            <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            <span className="text-white font-semibold text-[10px]">{item.count}</span>
+                            <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
                               {new Date(item.date).toLocaleDateString()}
                             </div>
                           </div>
@@ -285,8 +281,8 @@ export default function AnalyticsPage() {
           <div className="space-y-3">
             <div>
               <label className="block text-xs font-medium dark:text-white mb-2">Report Type</label>
-              <select 
-                value={reportType} 
+              <select
+                value={reportType}
                 onChange={(e) => setReportType(e.target.value)}
                 className="w-full px-3 py-2 border dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#1da9c3]"
               >
@@ -304,11 +300,10 @@ export default function AnalyticsPage() {
                   <button
                     key={freq}
                     onClick={() => setScheduleFrequency(freq)}
-                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                      scheduleFrequency === freq
+                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${scheduleFrequency === freq
                         ? 'bg-[#1da9c3] text-white'
                         : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
+                      }`}
                   >
                     {freq.charAt(0).toUpperCase() + freq.slice(1)}
                   </button>
@@ -316,7 +311,7 @@ export default function AnalyticsPage() {
               </div>
             </div>
 
-            <button 
+            <button
               onClick={handleScheduleReport}
               disabled={!reportType}
               className="w-full py-2 bg-[#1da9c3] text-white rounded-lg hover:bg-[#178a9f] transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"

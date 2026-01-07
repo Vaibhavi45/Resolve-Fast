@@ -34,9 +34,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password')
         role = validated_data.get('role', 'CUSTOMER')
         
-        # For agents, set is_verified to False initially (admin will verify)
+        # For testing/demo, auto-verify agents
         if role == 'AGENT':
-            validated_data['is_verified'] = False
+            validated_data['is_verified'] = True
         
         # Create user with email as the username field
         user = User.objects.create_user(

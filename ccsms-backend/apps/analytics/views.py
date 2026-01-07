@@ -42,11 +42,33 @@ def dashboard_stats(request):
     
     else:  # ADMIN
         all_complaints = Complaint.objects.all()
+        
+        # Calculate active agents (agents with at least one assigned complaint)
+        active_agents_count = User.objects.filter(
+            role='AGENT',
+            assigned_complaints__isnull=False
+        ).distinct().count()
+        
+        # Calculate average resolution time in minutes
+        resolved_complaints = all_complaints.filter(status='RESOLVED', resolved_at__isnull=False)
+        avg_time = 0
+        if resolved_complaints.exists():
+            total_time = 0
+            count = 0
+            for complaint in resolved_complaints:
+                if complaint.resolved_at and complaint.created_at:
+                    time_diff = (complaint.resolved_at - complaint.created_at).total_seconds() / 60  # minutes
+                    total_time += time_diff
+                    count += 1
+            avg_time = int(total_time / count) if count > 0 else 0
+        
         stats = {
             'total_complaints': all_complaints.count(),
             'open': all_complaints.filter(status='OPEN').count(),
             'sla_breaches': all_complaints.filter(sla_breached=True).count(),
-            'avg_resolution_time': 0,
+            'avg_resolution_time': avg_time,  # in minutes
+            'active_agents': active_agents_count,
+            'resolved': all_complaints.filter(status='RESOLVED').count(),
             'resolution_rate': 0,
             'customer_satisfaction': 0
         }

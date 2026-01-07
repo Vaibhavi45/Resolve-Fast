@@ -4,7 +4,10 @@ import "./globals.css";
 import { LayoutClient } from "./layout-client";
 import { ReactNode } from "react";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "ResolveFast - Complaint Management Simplified",
@@ -20,8 +23,8 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <body>
         <LayoutClient>{children}</LayoutClient>
       </body>
     </html>

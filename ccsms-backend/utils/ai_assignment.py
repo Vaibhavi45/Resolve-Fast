@@ -20,8 +20,7 @@ class AIAssignmentEngine:
             # Get all active agents
             agents = User.objects.filter(
                 role='AGENT',
-                is_active=True,
-                is_verified=True
+                is_active=True
             )
             
             for agent in agents:

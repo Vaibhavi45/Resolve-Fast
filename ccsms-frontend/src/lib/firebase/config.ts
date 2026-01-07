@@ -11,17 +11,44 @@ const firebaseConfig = {
   measurementId: "G-LTQLR7JZEZ"
 };
 
-let app: FirebaseApp;
+let app: FirebaseApp | undefined;
 let messaging: Messaging | null = null;
 
-if (typeof window !== 'undefined') {
-  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+/**
+ * Get or initialize the Firebase App instance
+ */
+export const getAppInstance = (): FirebaseApp | null => {
+  if (typeof window === 'undefined') return null;
 
-  isSupported().then((supported) => {
+  if (!app) {
+    app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+  }
+  return app;
+};
+
+/**
+ * Get the Firebase Messaging instance safely
+ */
+export const getMessagingInstance = async (): Promise<Messaging | null> => {
+  if (typeof window === 'undefined') return null;
+
+  if (messaging) return messaging;
+
+  const currentApp = getAppInstance();
+  if (!currentApp) return null;
+
+  try {
+    const supported = await isSupported();
     if (supported) {
-      messaging = getMessaging(app);
+      messaging = getMessaging(currentApp);
+      return messaging;
     }
-  });
-}
+  } catch (err) {
+    console.warn('FCM isSupported check failed:', err);
+  }
 
+  return null;
+};
+
+// Also export for backward compatibility if needed, though they might be null initially
 export { app, messaging, firebaseConfig };
