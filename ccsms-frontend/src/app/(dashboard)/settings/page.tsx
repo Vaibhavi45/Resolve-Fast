@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { User, Lock, Bell, Shield, Globe } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { user, setUser } = useAuthStore();
+  const { user, updateUser } = useAuthStore();
   const [activeTab, setActiveTab] = useState('personal');
   const [profileData, setProfileData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -77,7 +77,7 @@ export default function SettingsPage() {
 
       const updated = await usersService.updateProfile(formData);
       setProfileData(updated);
-      setUser(updated); // Update global store
+      updateUser(updated); // Update global store
       setAvatarFile(null);
       setAvatarPreview(null);
       setSaveStatus({ type: 'success', message: 'Profile updated successfully' });
