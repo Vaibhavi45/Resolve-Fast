@@ -26,7 +26,7 @@ export default function DashboardPage() {
 
   const { data: complaints } = useQuery({
     queryKey: ['complaints'],
-    queryFn: () => complaintsService.getComplaints(),
+    queryFn: () => complaintsService.getAll(),
     enabled: user?.role === 'CUSTOMER',
   });
 
