@@ -257,7 +257,7 @@ export default function AuditPage() {
                 <div className="text-[11px] text-slate-500">Summary of data ageing and scheduled cleanup cycles.</div>
               </div>
             </div>
-            <Shield size={18} className="text-slate-300 dark:text-slate-700" title="Security Verified" />
+            <Shield size={18} className="text-slate-300 dark:text-slate-700" />
           </button>
 
           <button
@@ -273,7 +273,7 @@ export default function AuditPage() {
                 <div className="text-[11px] text-slate-500">Detailed security log of login attempts and unauthorized access alerts.</div>
               </div>
             </div>
-            <Shield size={18} className="text-slate-300 dark:text-slate-700" title="Protected" />
+            <Shield size={18} className="text-slate-300 dark:text-slate-700" />
           </button>
         </div>
       </div>
